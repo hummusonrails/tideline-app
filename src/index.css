@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+/* Inter (variable) is preloaded in index.html. Fallback chain handles the
+   brief period before the variable font lands, and offline edge cases. */
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Variable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --color-sage-50: #eef3ec;
+  --color-sage-100: #d9e5d6;
+  --color-sage-200: #bdd0b8;
+  --color-sage-300: #9ab693;
+  --color-sage-400: #79a072;
+  --color-sage-500: #5b8a55;
+  --color-sage-700: #3d5c39;
+
+  --color-ink-900: #0f1419;
+  --color-ink-700: #2b3440;
+  --color-ink-600: #4a5563;
+  --color-ink-400: #8b95a3;
+  --color-ink-200: #d1d6dd;
+
+  --color-coral: #ff5a5f;
+  --color-ocean: #1e6aa8;
+
+  --color-tier-bronze: #c68b5a;
+  --color-tier-silver: #b8c2cc;
+  --color-tier-gold: #e5b842;
+  --color-tier-platinum: #6faede;
+
+  --font-display: "Inter", ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+
+  --radius-card: 28px;
+  --radius-pill: 9999px;
+
+  --shadow-glass: 0 8px 32px rgba(15, 20, 25, 0.08);
+  --shadow-pill: 0 6px 18px rgba(15, 20, 25, 0.12);
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: linear-gradient(180deg, var(--color-sage-50) 0%, var(--color-sage-100) 100%);
+  background-attachment: fixed;
+  color: var(--color-ink-900);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-variation-settings: "opsz" 14;
+}
+
+/* Mobile-first: keep things contained on tablets/desktop without
+   stretching weirdly. The app feels like a phone app in a centered frame. */
+#root {
+  max-width: 430px;
+  margin-inline: auto;
+  position: relative;
+  /* iOS safe-area aware */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Hide scrollbars but keep scroll */
+.scroll-clean {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scroll-clean::-webkit-scrollbar { display: none; }
+
+/* Reusable glass surface utility (preferred over re-declaring each time) */
+@utility glass {
+  background-color: rgb(255 255 255 / 0.55);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgb(255 255 255 / 0.65);
+  box-shadow: var(--shadow-glass);
+}
+
+@utility glass-dark {
+  background-color: rgb(15 20 25 / 0.45);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgb(255 255 255 / 0.18);
+  color: white;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Respect reduced motion users (skill: a11y) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
