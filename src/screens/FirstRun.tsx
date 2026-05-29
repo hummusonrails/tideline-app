@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile } from '../lib/profile';
@@ -8,6 +9,20 @@ import { enqueue } from '../lib/sync';
 import { uid } from '../lib/uuid';
 import { textToBase64 } from '../lib/github';
 import { GlassCard } from '../ui/GlassCard';
+
+/** Compact, temporary diagnostic shown while the first sync is in progress. */
+function SyncDebug() {
+  const phase = useLiveQuery(() => db.meta.get('sync-phase'));
+  const profiles = useLiveQuery(() => db.profiles.count()) ?? 0;
+  const places = useLiveQuery(() => db.places.count()) ?? 0;
+  const p = (phase?.value as { phase?: string } | undefined)?.phase ?? '(no tick yet)';
+  return (
+    <div className="mt-3 text-[10px] text-ink-400 tabular leading-relaxed">
+      <div>online: {String(navigator.onLine)} · phase: {p}</div>
+      <div>profiles: {profiles} · places: {places}</div>
+    </div>
+  );
+}
 
 /**
  * One-time, per-member welcome step. Everyone confirms a daily habit.
@@ -69,6 +84,7 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
           {slow && (
             <div className="text-xs text-ink-400">First sync can take a moment on a new device.</div>
           )}
+          <SyncDebug />
         </GlassCard>
       </Overlay>
     );

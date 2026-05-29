@@ -147,15 +147,21 @@ function expectedSlugs(paths: string[], prefix: string): Set<string> {
   return out;
 }
 
+async function setPhase(phase: string): Promise<void> {
+  await db.meta.put({ key: 'sync-phase', value: { phase, at: new Date().toISOString() } });
+}
+
 async function pullAll(ctx: GHCtx): Promise<void> {
   try {
+    await setPhase('get-branch');
     const branch = await getBranch(ctx);
     const rootTreeSha = branch.commit.commit.tree.sha;
     const prior = await db.treeEtags.get('root');
+    await setPhase('get-tree');
     const out = await getTreeRecursive(ctx, rootTreeSha, prior?.etag ?? undefined);
     // Reaching here means the backend was reachable — clear any prior error.
     await db.meta.delete('sync-error');
-    if (!out) return; // 304 — nothing changed.
+    if (!out) { await setPhase('up-to-date'); return; } // 304 — nothing changed.
     await db.treeEtags.put({
       prefix: 'root',
       treeSha: out.tree.sha,
@@ -173,10 +179,14 @@ async function pullAll(ctx: GHCtx): Promise<void> {
       p.startsWith('profiles/') ? 0 : isPhoto(p) ? 2 : 1;
     blobs.sort((a, b) => rank(a.path) - rank(b.path));
     const CHUNK = 8;
+    await setPhase(`pull-files 0/${blobs.length}`);
+    let pulled = 0;
     for (let i = 0; i < blobs.length; i += CHUNK) {
       await Promise.all(
         blobs.slice(i, i + CHUNK).map((e) => pullFile(ctx, e.path, e.sha)),
       );
+      pulled = Math.min(blobs.length, i + CHUNK);
+      await setPhase(`pull-files ${pulled}/${blobs.length}`);
     }
 
     // Reconcile enumerable collections: when a source file is removed from
@@ -196,7 +206,9 @@ async function pullAll(ctx: GHCtx): Promise<void> {
       .filter((p) => !expectedPlaceSlugs.has(p.slug))
       .map((p) => p.slug);
     if (stalePlaceSlugs.length > 0) await db.places.bulkDelete(stalePlaceSlugs);
+    await setPhase('done');
   } catch (err) {
+    await setPhase(`error: ${err instanceof GHError ? err.status : (err instanceof Error ? err.message : 'unknown')}`);
     if (err instanceof GHError && err.status === 401) {
       // Token is invalid/expired — force a clean passphrase re-unlock.
       window.dispatchEvent(new CustomEvent('tideline:auth-expired'));
