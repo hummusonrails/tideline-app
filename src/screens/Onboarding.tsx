@@ -43,11 +43,17 @@ export function Onboarding() {
         try {
           await getBranch({ owner: payload.owner, repo: payload.repo, token: payload.pat, branch: 'main' });
         } catch (ve: unknown) {
+          // Diagnostic: show exactly which backend + status failed so a
+          // typo'd owner/repo or token issue is obvious at a glance.
+          const where = `${payload.owner}/${payload.repo}`;
           if (ve instanceof GHError && ve.status === 401) {
-            throw new Error('That passphrase unlocked, but the saved access token is invalid. Ask whoever set up the app to regenerate your code.');
+            throw new Error(`Token rejected (401) for ${where}. The saved access token is invalid — regenerate this member's code.`);
           }
-          if (ve instanceof GHError && (ve.status === 403 || ve.status === 404)) {
-            throw new Error("Your access code can't reach the family data. Ask whoever set up the app to re-issue your code.");
+          if (ve instanceof GHError && ve.status === 404) {
+            throw new Error(`Can't find ${where} (404). The token can't see that repo — check the owner/repo are spelled exactly right and the token has that repo selected.`);
+          }
+          if (ve instanceof GHError && ve.status === 403) {
+            throw new Error(`Access denied to ${where} (403). The token is missing a permission (needs Contents: Read and write).`);
           }
           // Network/other: allow sign-in (offline-first); sync will retry.
         }

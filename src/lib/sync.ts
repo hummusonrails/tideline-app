@@ -198,10 +198,12 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     // Any other failure (403/404 access, 5xx, offline) used to be swallowed,
     // leaving the UI stuck on "loading" forever. Record a readable error so
     // the UI can surface it.
+    const where = `${ctx.owner}/${ctx.repo}`;
     let message = 'Something went wrong syncing your data.';
-    if (err instanceof GHError && (err.status === 404 || err.status === 403)) {
-      message =
-        "Your access code can't reach the family data. Ask whoever set up the app to check that your token has access to the data repo.";
+    if (err instanceof GHError && err.status === 404) {
+      message = `Can't find ${where} (404) — the token can't see that repo. Check the owner/repo spelling and that the token has it selected.`;
+    } else if (err instanceof GHError && err.status === 403) {
+      message = `Access denied to ${where} (403) — token needs Contents: Read and write.`;
     } else if (!navigator.onLine) {
       message = "You're offline. Tideline will sync when you're back online.";
     } else if (err instanceof GHError && err.status >= 500) {
