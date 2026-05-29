@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile } from '../lib/profile';
+import { useSyncError, retrySync } from '../lib/syncStatus';
 import { enqueue } from '../lib/sync';
 import { uid } from '../lib/uuid';
 import { textToBase64 } from '../lib/github';
@@ -16,11 +17,51 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
   const session = useSession();
   const myId = session.identity!;
   const profile = useMyProfile();
+  const syncError = useSyncError();
   const [habit, setHabit] = useState('');
   const [saving, setSaving] = useState(false);
+  const [slow, setSlow] = useState(false);
 
-  // Wait for profile to load before prefilling.
+  // If the profile hasn't loaded in a reasonable window, stop pretending
+  // we're "getting things ready" and offer a way out.
+  useEffect(() => {
+    if (profile) return;
+    const t = window.setTimeout(() => setSlow(true), 12_000);
+    return () => window.clearTimeout(t);
+  }, [profile]);
+
+  // Wait for profile to load before prefilling — but never hang forever.
   if (!profile) {
+    if (syncError || slow) {
+      return (
+        <Overlay>
+          <GlassCard className="text-center max-w-sm">
+            <div className="text-3xl mb-2">📡</div>
+            <div className="font-display text-lg font-semibold mb-1">Couldn't load your data</div>
+            <p className="text-sm text-ink-600">
+              {syncError?.message ??
+                "This is taking longer than expected. Check your connection and try again."}
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setSlow(false); retrySync(); }}
+                className="flex-1 rounded-full bg-ink-900 text-white text-sm font-medium py-2.5 active:scale-[0.98] transition"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={() => session.signOut()}
+                className="flex-1 rounded-full bg-white/70 text-ink-700 text-sm font-medium py-2.5 ring-1 ring-white/80"
+              >
+                Sign out
+              </button>
+            </div>
+          </GlassCard>
+        </Overlay>
+      );
+    }
     return (
       <Overlay>
         <GlassCard className="text-center text-ink-600">Getting things ready…</GlassCard>

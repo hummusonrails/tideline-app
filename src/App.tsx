@@ -14,6 +14,7 @@ import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
 import { useSession, isUnlockFresh } from './state/session';
 import { startSyncLoop } from './lib/sync';
+import { useSyncError, retrySync } from './lib/syncStatus';
 
 export function App() {
   const session = useSession();
@@ -76,9 +77,27 @@ export function App() {
 function WithTabs({ children }: { children: React.ReactNode }) {
   return (
     <>
+      <SyncErrorBanner />
       <div className="min-h-dvh pb-28">{children}</div>
       <TabBar />
     </>
+  );
+}
+
+function SyncErrorBanner() {
+  const error = useSyncError();
+  if (!error) return null;
+  return (
+    <div className="fixed top-3 inset-x-3 z-40 glass rounded-2xl px-4 py-2.5 flex items-center justify-between gap-2">
+      <span className="text-xs text-ink-700 leading-snug">{error.message}</span>
+      <button
+        type="button"
+        onClick={() => retrySync()}
+        className="shrink-0 text-xs font-semibold text-ocean px-3 py-1 rounded-full bg-white/70"
+      >
+        Retry
+      </button>
+    </div>
   );
 }
 

@@ -153,6 +153,8 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     const rootTreeSha = branch.commit.commit.tree.sha;
     const prior = await db.treeEtags.get('root');
     const out = await getTreeRecursive(ctx, rootTreeSha, prior?.etag ?? undefined);
+    // Reaching here means the backend was reachable — clear any prior error.
+    await db.meta.delete('sync-error');
     if (!out) return; // 304 — nothing changed.
     await db.treeEtags.put({
       prefix: 'root',
@@ -189,8 +191,30 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     if (stalePlaceSlugs.length > 0) await db.places.bulkDelete(stalePlaceSlugs);
   } catch (err) {
     if (err instanceof GHError && err.status === 401) {
+      // Token is invalid/expired — force a clean passphrase re-unlock.
       window.dispatchEvent(new CustomEvent('tideline:auth-expired'));
+      return;
     }
+    // Any other failure (403/404 access, 5xx, offline) used to be swallowed,
+    // leaving the UI stuck on "loading" forever. Record a readable error so
+    // the UI can surface it.
+    let message = 'Something went wrong syncing your data.';
+    if (err instanceof GHError && (err.status === 404 || err.status === 403)) {
+      message =
+        "Your access code can't reach the family data. Ask whoever set up the app to check that your token has access to the data repo.";
+    } else if (!navigator.onLine) {
+      message = "You're offline. Tideline will sync when you're back online.";
+    } else if (err instanceof GHError && err.status >= 500) {
+      message = 'GitHub seems to be having trouble. Trying again shortly.';
+    }
+    await db.meta.put({
+      key: 'sync-error',
+      value: {
+        message,
+        status: err instanceof GHError ? err.status : null,
+        at: new Date().toISOString(),
+      },
+    });
   }
 }
 
