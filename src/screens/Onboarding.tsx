@@ -6,6 +6,7 @@ import { GlassCard } from '../ui/GlassCard';
 import { PillButton } from '../ui/PillButton';
 import { useSession } from '../state/session';
 import { decryptSecret, type EncryptedBundle } from '../lib/crypto';
+import { getBranch, GHError } from '../lib/github';
 import type { MemberManifest, MemberId } from '../types';
 
 export function Onboarding() {
@@ -34,6 +35,24 @@ export function Onboarding() {
       if (!res.ok) throw new Error('slot not found');
       const bundle = (await res.json()) as EncryptedBundle;
       const payload = await decryptSecret(bundle, passphrase);
+
+      // Validate the credentials can actually reach the backend before we
+      // commit to a session — otherwise a wrong token/owner/repo only shows
+      // up later as a silent background sync failure.
+      if (navigator.onLine) {
+        try {
+          await getBranch({ owner: payload.owner, repo: payload.repo, token: payload.pat, branch: 'main' });
+        } catch (ve: unknown) {
+          if (ve instanceof GHError && ve.status === 401) {
+            throw new Error('That passphrase unlocked, but the saved access token is invalid. Ask whoever set up the app to regenerate your code.');
+          }
+          if (ve instanceof GHError && (ve.status === 403 || ve.status === 404)) {
+            throw new Error("Your access code can't reach the family data. Ask whoever set up the app to re-issue your code.");
+          }
+          // Network/other: allow sign-in (offline-first); sync will retry.
+        }
+      }
+
       session.signIn(pickedId, payload.pat, payload.owner, payload.repo);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
