@@ -156,18 +156,15 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     await setPhase('get-branch');
     const branch = await getBranch(ctx);
     const rootTreeSha = branch.commit.commit.tree.sha;
-    const prior = await db.treeEtags.get('root');
+    // Key is versioned: bumping it invalidates any etag saved by an older
+    // build (e.g. one that could leave a poisoned "up-to-date" marker).
+    const ETAG_KEY = 'root-v2';
+    const prior = await db.treeEtags.get(ETAG_KEY);
     await setPhase('get-tree');
     const out = await getTreeRecursive(ctx, rootTreeSha, prior?.etag ?? undefined);
     // Reaching here means the backend was reachable — clear any prior error.
     await db.meta.delete('sync-error');
     if (!out) { await setPhase('up-to-date'); return; } // 304 — nothing changed.
-    await db.treeEtags.put({
-      prefix: 'root',
-      treeSha: out.tree.sha,
-      etag: out.etag,
-      syncedAt: new Date().toISOString(),
-    });
 
     // Pull files in parallel, chunked to stay polite with the API.
     // Order matters: fetch small, app-critical data (the signed-in member's
@@ -206,6 +203,16 @@ async function pullAll(ctx: GHCtx): Promise<void> {
       .filter((p) => !expectedPlaceSlugs.has(p.slug))
       .map((p) => p.slug);
     if (stalePlaceSlugs.length > 0) await db.places.bulkDelete(stalePlaceSlugs);
+
+    // Only now — after every file is pulled and reconciled — record the tree
+    // as fully synced. If anything above was interrupted, no etag is saved,
+    // so the next run re-pulls instead of falsely reporting "up-to-date".
+    await db.treeEtags.put({
+      prefix: ETAG_KEY,
+      treeSha: out.tree.sha,
+      etag: out.etag,
+      syncedAt: new Date().toISOString(),
+    });
     await setPhase('done');
   } catch (err) {
     await setPhase(`error: ${err instanceof GHError ? err.status : (err instanceof Error ? err.message : 'unknown')}`);
