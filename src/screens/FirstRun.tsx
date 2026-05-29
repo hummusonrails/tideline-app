@@ -22,26 +22,25 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
   const [saving, setSaving] = useState(false);
   const [slow, setSlow] = useState(false);
 
-  // If the profile hasn't loaded in a reasonable window, stop pretending
-  // we're "getting things ready" and offer a way out.
+  // Only surface a "taking a while" hint after a generous window, since the
+  // first sync can take time on a phone. A real error (syncError) shows
+  // immediately regardless.
   useEffect(() => {
     if (profile) return;
-    const t = window.setTimeout(() => setSlow(true), 12_000);
+    const t = window.setTimeout(() => setSlow(true), 30_000);
     return () => window.clearTimeout(t);
   }, [profile]);
 
   // Wait for profile to load before prefilling — but never hang forever.
   if (!profile) {
-    if (syncError || slow) {
+    // A genuine failure (bad token / unreachable) — show it with actions.
+    if (syncError) {
       return (
         <Overlay>
           <GlassCard className="text-center max-w-sm">
             <div className="text-3xl mb-2">📡</div>
             <div className="font-display text-lg font-semibold mb-1">Couldn't load your data</div>
-            <p className="text-sm text-ink-600">
-              {syncError?.message ??
-                "This is taking longer than expected. Check your connection and try again."}
-            </p>
+            <p className="text-sm text-ink-600">{syncError.message}</p>
             <div className="mt-5 flex gap-2">
               <button
                 type="button"
@@ -62,9 +61,15 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
         </Overlay>
       );
     }
+    // No error yet — still pulling. Reassure rather than alarm.
     return (
       <Overlay>
-        <GlassCard className="text-center text-ink-600">Getting things ready…</GlassCard>
+        <GlassCard className="text-center text-ink-600">
+          <div className="mb-1">Getting things ready…</div>
+          {slow && (
+            <div className="text-xs text-ink-400">First sync can take a moment on a new device.</div>
+          )}
+        </GlassCard>
       </Overlay>
     );
   }

@@ -164,7 +164,14 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     });
 
     // Pull files in parallel, chunked to stay polite with the API.
+    // Order matters: fetch small, app-critical data (the signed-in member's
+    // profile, then other JSON) BEFORE large binaries (place + user photos),
+    // so the app becomes usable in seconds even when many photos are syncing.
     const blobs = out.tree.tree.filter((e) => e.type === 'blob');
+    const isPhoto = (p: string) => /\.(jpe?g|png|webp)$/i.test(p);
+    const rank = (p: string) =>
+      p.startsWith('profiles/') ? 0 : isPhoto(p) ? 2 : 1;
+    blobs.sort((a, b) => rank(a.path) - rank(b.path));
     const CHUNK = 8;
     for (let i = 0; i < blobs.length; i += CHUNK) {
       await Promise.all(
