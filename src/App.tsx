@@ -10,10 +10,12 @@ import { Profile } from './screens/Profile';
 import { Panic } from './screens/Panic';
 import { PlaceDetail } from './screens/PlaceDetail';
 import { About } from './screens/About';
+import { Devices } from './screens/Devices';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
 import { useSession, isUnlockFresh } from './state/session';
 import { startSyncLoop } from './lib/sync';
+import { getPeerManager } from './lib/p2p/manager';
 import { useSyncError, retrySync } from './lib/syncStatus';
 
 export function App() {
@@ -42,6 +44,16 @@ export function App() {
     return stop;
   }, [session.identity, session.pat, session.dataOwner, session.dataRepo]);
 
+  // Drop every live p2p connection on sign-out / panic. We never sign
+  // outbound p2p traffic with anything tied to the GitHub PAT, but the
+  // identity key + Dexie are about to be wiped, so any active session
+  // would be talking on behalf of a no-longer-signed-in user.
+  useEffect(() => {
+    if (!session.identity) {
+      getPeerManager().shutdown();
+    }
+  }, [session.identity]);
+
   const needsOnboarding = !session.identity || !session.pat || !isUnlockFresh(session);
   const [firstRunDone, setFirstRunDone] = useState(false);
   const showFirstRun = !needsOnboarding && !firstRunDone && needsFirstRun(session.identity);
@@ -65,6 +77,7 @@ export function App() {
             <Route path="/quest" element={<WithTabs><Quest /></WithTabs>} />
             <Route path="/profile" element={<WithTabs><Profile /></WithTabs>} />
             <Route path="/place/:slug" element={<WithTabs><PlaceDetail /></WithTabs>} />
+            <Route path="/devices" element={<WithTabs><Devices /></WithTabs>} />
             <Route path="/about" element={<WithTabs><About /></WithTabs>} />
             <Route path="*" element={<Navigate to="/today" replace />} />
           </>

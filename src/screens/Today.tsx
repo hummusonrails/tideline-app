@@ -10,7 +10,8 @@ import { TierBadge } from '../ui/TierBadge';
 import { Flame, Trophy, ArrowUpRight, ChevronRight, CalendarDays } from 'lucide-react';
 import { enqueue } from '../lib/sync';
 import { awardPoints } from '../lib/award';
-import { uid, eventFilename, dateFolder } from '../lib/uuid';
+import { uid } from '../lib/uuid';
+import { habitPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
 import { usePlaceImage } from '../lib/places';
@@ -332,7 +333,7 @@ async function checkInHabit(by: string, date: string, priorHabits: HabitCheckIn[
     enqueuedAt: now.toISOString(),
     op: {
       kind: 'put-file',
-      path: `habits/${dateFolder(now)}/${eventFilename(now, by, id, '.json')}`,
+      path: habitPath(record),
       contentBase64: textToBase64(JSON.stringify(record)),
       commitMessage: 'habit check-in',
     },

@@ -8,7 +8,8 @@ import { useSession } from '../state/session';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
 import { enqueue } from '../lib/sync';
 import { awardPoints, EARN, CAPS } from '../lib/award';
-import { uid, eventFilename, dateFolder } from '../lib/uuid';
+import { uid } from '../lib/uuid';
+import { messagePath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
 import { Send, BookOpen, MessageSquare, SmilePlus } from 'lucide-react';
 import type { Message, MemberId } from '../types';
@@ -165,7 +166,7 @@ async function sendMessage(from: MemberId, body: string, kind: 'message' | 'jour
     enqueuedAt: now.toISOString(),
     op: {
       kind: 'put-file',
-      path: `messages/${dateFolder(now)}/${eventFilename(now, from, id, '.json')}`,
+      path: messagePath(msg),
       contentBase64: textToBase64(JSON.stringify(msg)),
       commitMessage: kind === 'journal' ? 'journal entry' : 'send message',
     },
@@ -185,14 +186,12 @@ async function reactToMessage(message: Message, by: MemberId, emoji: string) {
   await db.messages.put(updated);
 
   // Re-write the message file (reactions live on the message record).
-  const day = message.sentAt.slice(0, 10);
-  const sentDate = new Date(message.sentAt);
   await enqueue({
     id: `react-${message.id}-${by}`,
     enqueuedAt: now.toISOString(),
     op: {
       kind: 'put-file',
-      path: `messages/${day}/${eventFilename(sentDate, message.from, message.id, '.json')}`,
+      path: messagePath(updated),
       contentBase64: textToBase64(JSON.stringify(updated)),
       commitMessage: 'react to message',
     },

@@ -20,7 +20,8 @@ import {
 import { todayYMD } from '../lib/time';
 import { enqueue } from '../lib/sync';
 import { awardPoints, EARN, CAPS } from '../lib/award';
-import { uid, eventFilename, dateFolder } from '../lib/uuid';
+import { uid } from '../lib/uuid';
+import { completionPath, photoBinaryPath, photoSidecarPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
 import { compressForPost, blobToBase64 } from '../lib/compress';
 import { Camera, CheckCircle2, Check, X } from 'lucide-react';
@@ -467,7 +468,7 @@ async function completeChallenge(
     enqueuedAt: now.toISOString(),
     op: {
       kind: 'put-file',
-      path: `challenges-completed/${dateFolder(now)}/${eventFilename(now, by, compId, '.json')}`,
+      path: completionPath(completion),
       contentBase64: textToBase64(JSON.stringify(completion)),
       commitMessage: 'challenge complete',
     },
@@ -484,9 +485,6 @@ async function postProofPhoto(
 ): Promise<string> {
   const now = new Date();
   const id = uid();
-  const folder = dateFolder(now);
-  const jpgPath = `photos/${folder}/${eventFilename(now, by, id, '.jpg')}`;
-  const sidecarPath = `photos/${folder}/${eventFilename(now, by, id, '.json')}`;
   const photo: Photo = {
     id,
     from: by,
@@ -494,12 +492,15 @@ async function postProofPhoto(
     uploadedAt: now.toISOString(),
     caption: undefined,
     placeSlug,
-    filePath: jpgPath,
+    filePath: '',
     width: result.width,
     height: result.height,
     bytes: result.bytes,
     exifPresent: result.exifPresent,
   };
+  const jpgPath = photoBinaryPath(photo);
+  const sidecarPath = photoSidecarPath(photo);
+  photo.filePath = jpgPath;
   await db.photos.put(photo);
   await db.photoBlobs.put({ photoId: id, bytes: result.file });
   await enqueue({

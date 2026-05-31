@@ -13,7 +13,7 @@ import { awardPoints } from '../lib/award';
 import { uid } from '../lib/uuid';
 import { textToBase64 } from '../lib/github';
 import { compressAvatar, blobToBase64 } from '../lib/compress';
-import { LogOut, ShieldAlert, Camera, Info } from 'lucide-react';
+import { LogOut, ShieldAlert, Camera, Info, Smartphone } from 'lucide-react';
 
 export function Profile() {
   const session = useSession();
@@ -128,6 +128,16 @@ export function Profile() {
           className="!w-full justify-center"
         >
           Sign out (keeps local data)
+        </PillButton>
+      </GlassCard>
+
+      <GlassCard className="!p-3">
+        <PillButton
+          onClick={() => navigate('/devices')}
+          icon={<Smartphone size={14} />}
+          className="!w-full justify-center"
+        >
+          Devices &amp; offline sync
         </PillButton>
       </GlassCard>
 

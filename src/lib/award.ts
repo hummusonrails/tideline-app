@@ -1,7 +1,8 @@
 import { db } from './db';
 import { enqueue } from './sync';
-import { uid, eventFilename, dateFolder } from './uuid';
+import { uid } from './uuid';
 import { textToBase64 } from './github';
+import { pointEventPath } from './paths';
 import { DEFAULT_CONFIG, countEventsOnDate } from './points';
 import { todayYMD } from './time';
 import { tripStartDate } from './trip';
@@ -55,7 +56,7 @@ export async function awardPoints(opts: {
     enqueuedAt: now.toISOString(),
     op: {
       kind: 'put-file',
-      path: `points/${dateFolder(now)}/${eventFilename(now, opts.by, id, '.json')}`,
+      path: pointEventPath(event),
       contentBase64: textToBase64(JSON.stringify(event)),
       commitMessage: `points: ${opts.reason}`,
     },

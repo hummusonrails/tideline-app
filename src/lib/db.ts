@@ -47,6 +47,20 @@ interface PlaceBlobRow {
   bytes: Blob;
 }
 
+/**
+ * A paired peer — another device we've trusted via QR-code exchange.
+ * `memberId` is the MemberId that peer claims; it's still required to
+ * match a known profile before we accept their data.
+ */
+export interface PeerRow {
+  fingerprint: string;       // short hash of publicKeyB64 — primary key
+  publicKeyB64: string;      // raw P-256 public key, base64
+  memberId: string;          // MemberId the peer authenticated as
+  displayName: string;       // captured at pairing for the devices list
+  pairedAt: string;          // ISO
+  lastSeenAt: string | null; // ISO, updated on each successful connection
+}
+
 class TidelineDB extends Dexie {
   meta!: Table<MetaRow, string>;
   treeEtags!: Table<TreeEtagRow, string>;
@@ -66,6 +80,8 @@ class TidelineDB extends Dexie {
   pointEvents!: Table<PointEvent, string>;
   completions!: Table<ChallengeCompletion, string>;
   habits!: Table<HabitCheckIn, string>;
+
+  peers!: Table<PeerRow, string>;
 
   constructor() {
     super('tideline');
@@ -90,6 +106,9 @@ class TidelineDB extends Dexie {
     });
     this.version(3).stores({
       placeBlobs: '&slug',
+    });
+    this.version(4).stores({
+      peers: '&fingerprint, memberId',
     });
   }
 }

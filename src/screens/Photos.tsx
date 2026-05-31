@@ -11,7 +11,8 @@ import { useMyProfile, useAvatarSrc } from '../lib/profile';
 import { compressForPost, blobToBase64 } from '../lib/compress';
 import { enqueue } from '../lib/sync';
 import { awardPoints, EARN, CAPS } from '../lib/award';
-import { uid, eventFilename, dateFolder } from '../lib/uuid';
+import { uid } from '../lib/uuid';
+import { photoBinaryPath, photoSidecarPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
 import { getFile, deleteFile, type GHCtx } from '../lib/github';
 import type { Photo } from '../types';
@@ -194,21 +195,20 @@ async function uploadPhoto(file: File, by: string) {
   const result = await compressForPost(file);
   const now = new Date();
   const id = uid();
-  const folder = dateFolder(now);
-  const jpgPath = `photos/${folder}/${eventFilename(now, by, id, '.jpg')}`;
-  const sidecarPath = `photos/${folder}/${eventFilename(now, by, id, '.json')}`;
-
   const photo: Photo = {
     id,
     from: by,
     takenAt: result.takenAt,
     uploadedAt: now.toISOString(),
-    filePath: jpgPath,
+    filePath: '',
     width: result.width,
     height: result.height,
     bytes: result.bytes,
     exifPresent: result.exifPresent,
   };
+  const jpgPath = photoBinaryPath(photo);
+  const sidecarPath = photoSidecarPath(photo);
+  photo.filePath = jpgPath;
 
   await db.photos.put(photo);
   await db.photoBlobs.put({ photoId: id, bytes: result.file });
