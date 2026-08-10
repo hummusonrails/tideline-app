@@ -11,6 +11,7 @@ import type {
   Place,
   ItineraryItem,
   PointsConfig,
+  Reaction,
 } from '../types';
 
 /**
@@ -61,6 +62,21 @@ export interface PeerRow {
   lastSeenAt: string | null; // ISO, updated on each successful connection
 }
 
+/**
+ * Evidence that one of our messages reached one specific device.
+ *
+ * Local-only and intentionally so: `routeFor` has no route for it, so it never
+ * reaches the backend. Delivery is a property of *this* device's knowledge, and
+ * committing a file per message per peer would swamp the repo's history for
+ * something nobody reads later.
+ */
+interface DeliveryRow {
+  messageId: string;
+  /** Device fingerprint we saw acknowledge it. */
+  fingerprint: string;
+  at: string;
+}
+
 class TidelineDB extends Dexie {
   meta!: Table<MetaRow, string>;
   treeEtags!: Table<TreeEtagRow, string>;
@@ -81,7 +97,9 @@ class TidelineDB extends Dexie {
   completions!: Table<ChallengeCompletion, string>;
   habits!: Table<HabitCheckIn, string>;
 
+  reactions!: Table<Reaction, string>;
   peers!: Table<PeerRow, string>;
+  deliveries!: Table<DeliveryRow, [string, string]>;
 
   constructor() {
     super('tideline');
@@ -133,6 +151,16 @@ class TidelineDB extends Dexie {
         .map((row: { key: string }) => row.key)
         .filter((key: string) => /^blob:photos\/.*\.jpe?g$/i.test(key));
       if (staleMarkers.length > 0) await meta.bulkDelete(staleMarkers);
+    });
+    // v6 — reactions become their own records, plus local delivery tracking.
+    //
+    // No data migration: legacy inline `message.reactions` maps stay exactly
+    // where they are and are still rendered (see lib/reactions.ts). Rewriting
+    // them into events would mint ids that differ per device, and each device
+    // would then gossip its own version of the same reaction to everyone else.
+    this.version(6).stores({
+      reactions: '&id, messageId, by',
+      deliveries: '&[messageId+fingerprint], messageId',
     });
   }
 }

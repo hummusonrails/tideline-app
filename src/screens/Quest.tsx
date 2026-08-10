@@ -153,7 +153,7 @@ function Challenges({ myId }: { myId: MemberId }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <div className="text-xs uppercase tracking-wider text-ink-400 px-1">{title}</div>
+      <div className="text-xs uppercase tracking-wider text-ink-600 px-1">{title}</div>
       {children}
     </div>
   );
@@ -178,14 +178,18 @@ function ChallengeRow({
         <div className="text-xs text-ink-600 line-clamp-2">{challenge.description}</div>
       </div>
       <div className="text-right shrink-0">
+        {/* Trivia pays per correct answer, so a flat "+15" was simply wrong —
+            it under-reported a three-question quiz by 2x. */}
         <div className="tabular text-sage-700 font-semibold">
-          +{challenge.points}{challenge.bonusPoints ? `+${challenge.bonusPoints}` : ''}
+          {challenge.proofType === 'trivia'
+            ? `+${challenge.points} ea`
+            : `+${challenge.points}${challenge.bonusPoints ? `+${challenge.bonusPoints}` : ''}`}
         </div>
         <div className="mt-1">
           {done ? (
             <span className="inline-flex items-center gap-1 text-xs text-sage-700"><CheckCircle2 size={14} /> done</span>
           ) : locked ? (
-            <span className="text-xs text-ink-400">soon</span>
+            <span className="text-xs text-ink-600">soon</span>
           ) : (
             <button
               type="button"
@@ -466,6 +470,15 @@ async function completeChallenge(
   by: MemberId,
   opts: { proofPhotoId?: string; triviaAnswers?: number[]; triviaCorrect?: number; awardedPoints: number; reason?: 'challenge' | 'trivia' },
 ) {
+  // Single source of truth for "already claimed". The UI disables its buttons,
+  // but a second tap can land before the live query reports the first write —
+  // and every duplicate would mint another award.
+  const already = await db.completions
+    .where('challengeId').equals(c.id)
+    .filter((row) => row.by === by)
+    .count();
+  if (already > 0) return;
+
   const now = new Date();
   const compId = uid();
   const completion: ChallengeCompletion = {

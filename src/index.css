@@ -19,11 +19,19 @@
   --color-sage-500: #5b8a55;
   --color-sage-700: #3d5c39;
 
+  /* Every step used anywhere in the app must exist here. Tailwind 4 emits
+     nothing at all for an unknown token, so a missing step doesn't fail the
+     build or warn — the element silently inherits, which reads as "slightly
+     off" rather than "broken" and survives review. 500/800 and 100 were each
+     in use with no definition behind them. */
   --color-ink-900: #0f1419;
+  --color-ink-800: #1b222b;
   --color-ink-700: #2b3440;
   --color-ink-600: #4a5563;
+  --color-ink-500: #6b7684;
   --color-ink-400: #8b95a3;
   --color-ink-200: #d1d6dd;
+  --color-ink-100: #e6e9ee;
 
   --color-coral: #ff5a5f;
   --color-ocean: #1e6aa8;
@@ -93,6 +101,22 @@ html, body, #root {
 
 @utility tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Confetti for a tier crossing. Suppressed wholesale by the reduced-motion
+   block below, which is why the celebration card stands on its own. */
+@keyframes tideline-fall {
+  0%   { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(110vh) rotate(540deg); opacity: 0; }
+}
+
+/* Glass buttons carry no default focus ring of their own, so keyboard and
+   switch-control users had no way to tell where they were. :focus-visible
+   keeps this off touch/mouse interactions. */
+:focus-visible {
+  outline: 2px solid var(--color-ocean);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* Respect reduced motion users (skill: a11y) */

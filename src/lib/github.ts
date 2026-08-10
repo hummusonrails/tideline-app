@@ -56,6 +56,39 @@ export class GHError extends Error {
   }
 }
 
+/**
+ * Default per-request ceiling. Without one, a captive portal that accepts the
+ * connection and then never answers leaves the request hanging indefinitely,
+ * which stalls the outbox drain behind it.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+/** Reachability-shaped calls should give up sooner. */
+const PROBE_TIMEOUT_MS = 10_000;
+/** Binary transfers get more room than a JSON API call. */
+const BLOB_TIMEOUT_MS = 30_000;
+
+/**
+ * fetch + an abort deadline, with aborts normalised into `GHError(0)`.
+ *
+ * Status 0 keeps timeouts inside the GHError family, which callers already
+ * treat as "the request failed, stop draining" rather than a bug. A bare
+ * DOMException would escape that handling.
+ */
+async function ghFetch(
+  url: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new GHError(0, `timeout after ${timeoutMs}ms`);
+    }
+    throw new GHError(0, err instanceof Error ? err.message : 'network error');
+  }
+}
+
 function headers(ctx: GHCtx, etag?: string): HeadersInit {
   const h: Record<string, string> = {
     Authorization: `Bearer ${ctx.token}`,
@@ -76,9 +109,11 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 
 export async function getBranch(ctx: GHCtx): Promise<GHBranch> {
   const branch = ctx.branch ?? 'main';
-  const res = await fetch(`${API}/repos/${ctx.owner}/${ctx.repo}/branches/${branch}`, {
-    headers: headers(ctx),
-  });
+  const res = await ghFetch(
+    `${API}/repos/${ctx.owner}/${ctx.repo}/branches/${branch}`,
+    { headers: headers(ctx) },
+    PROBE_TIMEOUT_MS,
+  );
   return jsonOrThrow<GHBranch>(res);
 }
 
@@ -92,7 +127,7 @@ export async function getTreeRecursive(
   treeSha: string,
   etag?: string,
 ): Promise<{ tree: GHTree; etag: string | null } | null> {
-  const res = await fetch(
+  const res = await ghFetch(
     `${API}/repos/${ctx.owner}/${ctx.repo}/git/trees/${treeSha}?recursive=1`,
     { headers: headers(ctx, etag) },
   );
@@ -103,7 +138,7 @@ export async function getTreeRecursive(
 
 export async function getFile(ctx: GHCtx, path: string): Promise<GHFile | null> {
   const branch = ctx.branch ?? 'main';
-  const res = await fetch(
+  const res = await ghFetch(
     `${API}/repos/${ctx.owner}/${ctx.repo}/contents/${encodePath(path)}?ref=${branch}`,
     { headers: headers(ctx) },
   );
@@ -125,7 +160,12 @@ export async function getFileBytes(ctx: GHCtx, path: string): Promise<Uint8Array
     return b64decodeToBytes(f.content);
   }
   if (f.download_url) {
-    const r = await fetch(f.download_url, { headers: { Authorization: `Bearer ${ctx.token}` } });
+    // Raw blob download — allow longer than an API call, it's real bytes.
+    const r = await ghFetch(
+      f.download_url,
+      { headers: { Authorization: `Bearer ${ctx.token}` } },
+      BLOB_TIMEOUT_MS,
+    );
     if (!r.ok) throw new GHError(r.status, `download_url failed`);
     return new Uint8Array(await r.arrayBuffer());
   }
@@ -149,11 +189,15 @@ export async function putFile(
   if (options?.committerName && options?.committerEmail) {
     body.committer = { name: options.committerName, email: options.committerEmail };
   }
-  const res = await fetch(`${API}/repos/${ctx.owner}/${ctx.repo}/contents/${encodePath(path)}`, {
-    method: 'PUT',
-    headers: { ...headers(ctx), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const res = await ghFetch(
+    `${API}/repos/${ctx.owner}/${ctx.repo}/contents/${encodePath(path)}`,
+    {
+      method: 'PUT',
+      headers: { ...headers(ctx), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    BLOB_TIMEOUT_MS,
+  );
   const out = await jsonOrThrow<{ content: { sha: string } }>(res);
   return { sha: out.content.sha };
 }
@@ -165,7 +209,7 @@ export async function deleteFile(
   commitMessage: string,
 ): Promise<void> {
   const branch = ctx.branch ?? 'main';
-  const res = await fetch(`${API}/repos/${ctx.owner}/${ctx.repo}/contents/${encodePath(path)}`, {
+  const res = await ghFetch(`${API}/repos/${ctx.owner}/${ctx.repo}/contents/${encodePath(path)}`, {
     method: 'DELETE',
     headers: { ...headers(ctx), 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: commitMessage, sha, branch }),

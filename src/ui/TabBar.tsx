@@ -13,23 +13,28 @@ export function TabBar() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 w-[min(96%,400px)]"
+      // `#root`'s safe-area padding can't help a fixed child — it's positioned
+      // against the viewport, so on a home-indicator phone it sits under the
+      // indicator. Each fixed element has to account for the inset itself.
+      className="fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-40 w-[min(96%,400px)]"
     >
-      <ul className="glass rounded-full px-2 py-2 flex items-center justify-between">
+      <ul className="glass rounded-[28px] px-2 py-1.5 flex items-center justify-between">
         {tabs.map(({ to, icon: Icon, label }) => (
           <li key={to}>
             <NavLink
               to={to}
               className={({ isActive }) =>
-                `grid h-12 w-12 place-items-center rounded-full transition ${
+                // Labels, not icons alone: five glyphs with no words makes
+                // people guess, and the guess costs a wrong screen every time.
+                `flex flex-col items-center justify-center gap-0.5 h-14 w-14 rounded-2xl transition ${
                   isActive
                     ? 'bg-white shadow-[var(--shadow-pill)] text-ink-900'
                     : 'text-ink-600 hover:text-ink-900'
                 }`
               }
-              aria-label={label}
             >
-              <Icon size={22} strokeWidth={1.75} absoluteStrokeWidth />
+              <Icon size={20} strokeWidth={1.75} absoluteStrokeWidth />
+              <span className="text-[10px] leading-none font-medium">{label}</span>
             </NavLink>
           </li>
         ))}

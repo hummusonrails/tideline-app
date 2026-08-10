@@ -12,6 +12,7 @@ import type {
   Message,
   Photo,
   PointEvent,
+  Reaction,
 } from '../types';
 import { dateFolder, eventFilename } from './uuid';
 
@@ -43,6 +44,11 @@ export function completionPath(c: Pick<ChallengeCompletion, 'id' | 'by' | 'compl
 export function habitPath(h: Pick<HabitCheckIn, 'id' | 'by' | 'at'>): string {
   const at = new Date(h.at);
   return `habits/${dateFolder(at)}/${eventFilename(at, h.by, h.id, '.json')}`;
+}
+
+export function reactionPath(r: Pick<Reaction, 'id' | 'by' | 'at'>): string {
+  const at = new Date(r.at);
+  return `reactions/${dateFolder(at)}/${eventFilename(at, r.by, r.id, '.json')}`;
 }
 
 /**

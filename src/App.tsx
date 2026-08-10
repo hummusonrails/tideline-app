@@ -11,6 +11,7 @@ import { Panic } from './screens/Panic';
 import { PlaceDetail } from './screens/PlaceDetail';
 import { About } from './screens/About';
 import { Devices } from './screens/Devices';
+import { Recap } from './screens/Recap';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
 import { useSession, isUnlockFresh } from './state/session';
@@ -18,10 +19,15 @@ import { startSyncLoop } from './lib/sync';
 import { refreshSubscription } from './lib/push';
 import { getPeerManager } from './lib/p2p/manager';
 import { useSyncError, retrySync } from './lib/syncStatus';
+import { startNetLoop } from './lib/net';
 
 export function App() {
   const session = useSession();
   const [updateReady, setUpdateReady] = useState(false);
+
+  // Runs regardless of sign-in state: Onboarding's unlock path also wants to
+  // know whether validating against the backend is even possible.
+  useEffect(() => startNetLoop(), []);
 
   useEffect(() => {
     const onUpdate = () => setUpdateReady(true);
@@ -53,6 +59,7 @@ export function App() {
   // identity key + Dexie are about to be wiped, so any active session
   // would be talking on behalf of a no-longer-signed-in user.
   useEffect(() => {
+    getPeerManager().setLocalMember(session.identity);
     if (!session.identity) {
       getPeerManager().shutdown();
     }
@@ -82,6 +89,8 @@ export function App() {
             <Route path="/profile" element={<WithTabs><Profile /></WithTabs>} />
             <Route path="/place/:slug" element={<WithTabs><PlaceDetail /></WithTabs>} />
             <Route path="/devices" element={<WithTabs><Devices /></WithTabs>} />
+            {/* Full-screen by design — no tab bar over the slideshow. */}
+            <Route path="/recap" element={<Recap />} />
             <Route path="/about" element={<WithTabs><About /></WithTabs>} />
             <Route path="*" element={<Navigate to="/today" replace />} />
           </>
@@ -95,7 +104,8 @@ function WithTabs({ children }: { children: React.ReactNode }) {
   return (
     <>
       <SyncErrorBanner />
-      <div className="min-h-dvh pb-28">{children}</div>
+      {/* Clears the tab bar, which grew when labels were added. */}
+      <div className="min-h-dvh pb-32">{children}</div>
       <TabBar />
     </>
   );

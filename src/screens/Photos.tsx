@@ -1,20 +1,21 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
 import { PillButton } from '../ui/PillButton';
 import { Avatar } from '../ui/Avatar';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Plus, X, Trash2, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
+import { useObjectUrl } from '../lib/blobUrl';
+import { todayYMD } from '../lib/time';
 import { compressForPost, blobToBase64 } from '../lib/compress';
 import { enqueue } from '../lib/sync';
 import { awardPoints, EARN, CAPS } from '../lib/award';
 import { uid } from '../lib/uuid';
 import { photoBinaryPath, photoSidecarPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
-import { getFile, deleteFile, type GHCtx } from '../lib/github';
 import type { Photo } from '../types';
 
 export function Photos() {
@@ -28,17 +29,35 @@ export function Photos() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<Photo | null>(null);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const [pending, setPending] = useState<File | null>(null);
+  const today = todayYMD();
+  const todayItems = useLiveQuery(() => db.itinerary.where('date').equals(today).toArray(), [today]) ?? [];
+  const places = useLiveQuery(() => db.places.toArray(), []) ?? [];
+
+  // Only offer places the family is actually at today — a full list of every
+  // stop on the trip is a scroll, not a choice.
+  const todayPlaces = places.filter((p) => todayItems.some((i) => i.placeSlug === p.slug));
 
   const visible = filter === 'all' ? photos : photos.filter((p) => p.from === filter);
 
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    if (fileInput.current) fileInput.current.value = '';
     if (!file) return;
+    // Ask for a caption before uploading rather than after: nobody goes back
+    // to annotate a photo they've already posted.
+    setPending(file);
+  }
+
+  async function commitPending(caption: string, placeSlug?: string) {
+    const file = pending;
+    if (!file) return;
+    setPending(null);
     setUploading(true);
     setError(null);
     try {
-      await uploadPhoto(file, id);
+      await uploadPhoto(file, id, { caption, placeSlug });
     } catch (err) {
       // Never swallow this: a failed upload used to look identical to nothing
       // happening at all, which is indistinguishable from the picker not
@@ -47,7 +66,6 @@ export function Photos() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
-      if (fileInput.current) fileInput.current.value = '';
     }
   }
 
@@ -83,8 +101,8 @@ export function Photos() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        {visible.map((photo) => (
-          <PhotoTile key={photo.id} photo={photo} onClick={() => setOpen(photo)} />
+        {visible.map((photo, i) => (
+          <PhotoTile key={photo.id} photo={photo} onClick={() => setOpenIndex(i)} />
         ))}
       </div>
 
@@ -98,7 +116,7 @@ export function Photos() {
         type="button"
         onClick={() => fileInput.current?.click()}
         disabled={uploading}
-        className="fixed bottom-24 right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink-900 text-white shadow-[var(--shadow-pill)] active:scale-95 transition disabled:opacity-60"
+        className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-ink-900 text-white shadow-[var(--shadow-pill)] active:scale-95 transition disabled:opacity-60"
         aria-label="Add photo"
       >
         <Plus />
@@ -107,63 +125,178 @@ export function Photos() {
           Library, so photos taken before opening the app can't be added. */}
       <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={onFile} />
 
-      {open && (
+      {pending && (
+        <CaptionSheet
+          file={pending}
+          places={todayPlaces}
+          onCancel={() => setPending(null)}
+          onPost={(caption, slug) => void commitPending(caption, slug)}
+        />
+      )}
+
+      {openIndex !== null && (
         <PhotoLightbox
-          photo={open}
-          canDelete={open.from === id}
-          uploaderName={profiles.find((p) => p.id === open.from)?.displayName ?? '—'}
-          uploaderAvatarSeed={open.from}
-          onClose={() => setOpen(null)}
-          onDeleted={() => setOpen(null)}
-          ctx={{ owner: session.dataOwner!, repo: session.dataRepo!, token: session.pat!, branch: 'main' }}
+          photos={visible}
+          index={openIndex}
+          myId={id}
+          profiles={profiles}
+          onIndex={setOpenIndex}
+          onClose={() => setOpenIndex(null)}
+          onDeleted={() => setOpenIndex(null)}
         />
       )}
     </Page>
   );
 }
 
+/**
+ * Caption + place prompt shown between picking a photo and posting it.
+ *
+ * Both are skippable in one tap — the goal is to make captions easy, not
+ * mandatory. A caption gate that slows down posting would cost more photos
+ * than it gains descriptions.
+ */
+function CaptionSheet({
+  file, places, onCancel, onPost,
+}: {
+  file: File;
+  places: { slug: string; name: string }[];
+  onCancel: () => void;
+  onPost: (caption: string, placeSlug?: string) => void;
+}) {
+  const preview = useObjectUrl(file);
+  const [caption, setCaption] = useState('');
+  const [slug, setSlug] = useState<string | undefined>(places[0]?.slug);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+      <div
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex gap-3">
+          {preview && (
+            <img src={preview} alt="" className="h-20 w-20 rounded-2xl object-cover shrink-0" />
+          )}
+          <textarea
+            rows={3}
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Say something about this photo…"
+            className="flex-1 bg-white/70 rounded-2xl px-3 py-2 text-sm outline-none resize-none ring-1 ring-white/80 focus:ring-ocean/40"
+          />
+        </div>
+
+        {places.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {places.map((p) => (
+              <button
+                key={p.slug}
+                type="button"
+                onClick={() => setSlug(slug === p.slug ? undefined : p.slug)}
+                aria-pressed={slug === p.slug}
+                className={`rounded-full px-3 py-1.5 text-xs transition ${
+                  slug === p.slug ? 'bg-ink-900 text-white' : 'bg-white/70 text-ink-700'
+                }`}
+              >
+                📍 {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onPost('', slug)}
+            className="flex-1 rounded-full bg-white/70 text-ink-700 text-sm font-medium py-2.5"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={() => onPost(caption, slug)}
+            className="flex-1 rounded-full bg-ink-900 text-white text-sm font-medium py-2.5 active:scale-[0.98] transition"
+          >
+            Post
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PhotoTile({ photo, onClick }: { photo: Photo; onClick: () => void }) {
   const blob = useLiveQuery(() => db.photoBlobs.get(photo.id), [photo.id]);
-  const [url, setUrl] = useState<string | null>(null);
-  if (blob && !url) setUrl(URL.createObjectURL(blob.bytes));
+  const url = useObjectUrl(blob?.bytes);
   return (
     <button
       type="button"
       onClick={onClick}
       className="relative aspect-square overflow-hidden rounded-2xl glass active:scale-[0.98] transition"
     >
-      {url && <img src={url} alt={photo.caption ?? ''} className="absolute inset-0 h-full w-full object-cover" />}
+      {url ? (
+        <img src={url} alt={photo.caption ?? ''} className="absolute inset-0 h-full w-full object-cover" />
+      ) : (
+        // A photo whose metadata arrived over gossip before its bytes shows
+        // here — pulsing, not blank, so it reads as "coming" not "broken".
+        <span className="absolute inset-0 grid place-items-center animate-pulse text-ink-400">
+          <ImageIcon size={20} />
+        </span>
+      )}
     </button>
   );
 }
 
 function PhotoLightbox({
-  photo,
-  canDelete,
-  uploaderName,
-  uploaderAvatarSeed,
+  photos,
+  index,
+  myId,
+  profiles,
+  onIndex,
   onClose,
   onDeleted,
-  ctx,
 }: {
-  photo: Photo;
-  canDelete: boolean;
-  uploaderName: string;
-  uploaderAvatarSeed: string;
+  photos: Photo[];
+  index: number;
+  myId: string;
+  profiles: { id: string; displayName: string }[];
+  onIndex: (i: number) => void;
   onClose: () => void;
   onDeleted: () => void;
-  ctx: GHCtx;
 }) {
-  const blob = useLiveQuery(() => db.photoBlobs.get(photo.id), [photo.id]);
-  const uploaderAvatar = useAvatarSrc(photo.from);
-  const url = blob ? URL.createObjectURL(blob.bytes) : null;
+  const photo = photos[index];
+  const blob = useLiveQuery(() => db.photoBlobs.get(photo?.id ?? ''), [photo?.id]);
+  const uploaderAvatar = useAvatarSrc(photo?.from);
+  const url = useObjectUrl(blob?.bytes);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Reset the delete confirmation when moving to a different photo, so a
+  // half-confirmed delete can't carry over onto someone else's.
+  useEffect(() => { setConfirming(false); }, [photo?.id]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft' && index > 0) onIndex(index - 1);
+      if (e.key === 'ArrowRight' && index < photos.length - 1) onIndex(index + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [index, photos.length, onIndex, onClose]);
+
+  if (!photo) return null;
+
+  const uploaderName = profiles.find((p) => p.id === photo.from)?.displayName ?? '—';
+  const canDelete = photo.from === myId;
+  const hasPrev = index > 0;
+  const hasNext = index < photos.length - 1;
 
   async function doDelete() {
     setDeleting(true);
     try {
-      await deletePhoto(photo, ctx);
+      await deletePhoto(photo);
       onDeleted();
     } finally {
       setDeleting(false);
@@ -172,13 +305,43 @@ function PhotoLightbox({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 grid place-items-center" onClick={onClose}>
-      <button type="button" className="absolute top-5 right-5 text-white/80 p-2" aria-label="Close">
+      {/* Explicit handler, not bubbling: relying on the backdrop's onClick
+          meant this button silently stopped working if anything between them
+          ever called stopPropagation. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        className="absolute top-5 right-5 z-10 text-white/80 p-2"
+        aria-label="Close"
+      >
         <X />
       </button>
+
+      {hasPrev && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onIndex(index - 1); }}
+          className="absolute left-2 z-10 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white"
+          aria-label="Previous photo"
+        >
+          <ChevronLeft />
+        </button>
+      )}
+      {hasNext && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onIndex(index + 1); }}
+          className="absolute right-2 z-10 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white"
+          aria-label="Next photo"
+        >
+          <ChevronRight />
+        </button>
+      )}
+
       {url && (
         <img
           src={url}
-          alt=""
+          alt={photo.caption ?? ''}
           className="max-h-[78dvh] max-w-[92vw] object-contain rounded-2xl"
           onClick={(e) => e.stopPropagation()}
         />
@@ -187,9 +350,10 @@ function PhotoLightbox({
         {photo.caption && <div className="text-base mb-2">{photo.caption}</div>}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Avatar seed={uploaderAvatarSeed} displayName={uploaderName} src={uploaderAvatar} size={28} />
+            <Avatar seed={photo.from} displayName={uploaderName} src={uploaderAvatar} size={28} />
             <div className="text-xs text-white/80">
               {uploaderName} · {new Date(photo.takenAt).toLocaleDateString()}
+              {photos.length > 1 && ` · ${index + 1}/${photos.length}`}
             </div>
           </div>
           {canDelete && (
@@ -219,7 +383,11 @@ function PhotoLightbox({
   );
 }
 
-async function uploadPhoto(file: File, by: string) {
+async function uploadPhoto(
+  file: File,
+  by: string,
+  opts: { caption?: string; placeSlug?: string } = {},
+) {
   const result = await compressForPost(file);
   const now = new Date();
   const id = uid();
@@ -228,6 +396,10 @@ async function uploadPhoto(file: File, by: string) {
     from: by,
     takenAt: result.takenAt,
     uploadedAt: now.toISOString(),
+    // Both fields already existed on the type and the lightbox already
+    // rendered captions — the upload flow just never collected them.
+    caption: opts.caption?.trim() || undefined,
+    placeSlug: opts.placeSlug || undefined,
     filePath: '',
     width: result.width,
     height: result.height,
@@ -256,24 +428,54 @@ async function uploadPhoto(file: File, by: string) {
   await awardPoints({ to: by, by, amount: EARN.photo, reason: 'photo', refId: id, dailyCap: CAPS.photoPerDay });
 }
 
-async function deletePhoto(photo: Photo, ctx: GHCtx) {
-  // Remove local copies immediately.
+/**
+ * Delete a photo everywhere it can reach.
+ *
+ * Goes through the outbox rather than calling the API directly. A direct call
+ * silently does nothing when there's no connectivity — which, on this trip, is
+ * most of the time — and the local row is already gone by then, so the delete
+ * looked like it worked while the remote file stayed put and re-synced to
+ * every other phone forever.
+ *
+ * Known limitation: a peer who already received this photo over P2P keeps its
+ * copy until it syncs with the backend. Propagating deletes over gossip needs
+ * tombstones, which is a much larger correctness surface than a rare action
+ * warrants.
+ */
+async function deletePhoto(photo: Photo) {
+  // Remove local copies immediately — the UI should respond at once.
   await db.photos.delete(photo.id);
   await db.photoBlobs.delete(photo.id);
-  // Drop any still-pending uploads for this photo so it isn't re-created.
-  await db.outbox.bulkDelete([`${photo.id}-bin`, `${photo.id}-meta`]);
 
-  // Best-effort remote delete: the Contents API delete requires the file
-  // sha, so fetch then delete both the jpg and its sidecar.
   const jpgPath = photo.filePath;
   const sidecarPath = jpgPath.replace(/\.jpg$/i, '.json');
-  try {
-    const jpg = await getFile(ctx, jpgPath);
-    if (jpg) await deleteFile(ctx, jpgPath, jpg.sha, 'delete photo');
-    const sidecar = await getFile(ctx, sidecarPath);
-    if (sidecar) await deleteFile(ctx, sidecarPath, sidecar.sha, 'delete photo metadata');
-  } catch {
-    // If offline, the local copy is gone; the remote files will reappear on
-    // next sync. Acceptable — delete is a best-effort online action.
-  }
+
+  // Drop anything queued that would re-create it: this device's own pending
+  // upload, and any copy forwarded from a peer.
+  await db.outbox.bulkDelete([
+    `${photo.id}-bin`,
+    `${photo.id}-meta`,
+    `p2p-photos-${photo.id}`,
+    `p2p-photo-bin-${photo.id}`,
+  ]);
+
+  // Clear the blob-seen markers too. Without this, `pullFile` skips these
+  // paths on the next sync (it remembers the sha it already fetched), so a
+  // delete that fails would leave us unable to re-pull the photo either —
+  // stuck in a state where it exists remotely but never comes back locally.
+  await db.meta.bulkDelete([`blob:${jpgPath}`, `blob:${sidecarPath}`]);
+
+  // The queued sha is a placeholder: `drainOutbox` refetches the live sha
+  // before deleting, and skips cleanly if the file is already gone.
+  const now = new Date().toISOString();
+  await enqueue({
+    id: `del-${photo.id}-bin`,
+    enqueuedAt: now,
+    op: { kind: 'delete-file', path: jpgPath, sha: '', commitMessage: 'delete photo' },
+  });
+  await enqueue({
+    id: `del-${photo.id}-meta`,
+    enqueuedAt: now,
+    op: { kind: 'delete-file', path: sidecarPath, sha: '', commitMessage: 'delete photo metadata' },
+  });
 }

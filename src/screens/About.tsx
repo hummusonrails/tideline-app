@@ -34,7 +34,7 @@ export function About() {
         </p>
       </GlassCard>
 
-      <div className="text-xs uppercase tracking-wider text-ink-400 px-1 mb-2">Photo credits</div>
+      <div className="text-xs uppercase tracking-wider text-ink-600 px-1 mb-2">Photo credits</div>
       <div className="space-y-2">
         {places === undefined && (
           <GlassCard className="text-ink-600 text-sm text-center">Loading…</GlassCard>

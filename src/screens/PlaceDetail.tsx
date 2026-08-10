@@ -2,22 +2,53 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { motion, AnimatePresence } from 'motion/react';
-import { ChevronLeft, Check, X, Sparkles } from 'lucide-react';
+import { ChevronLeft, Check, X } from 'lucide-react';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile } from '../lib/profile';
 import { usePlaceImage } from '../lib/places';
 import { GlassCard } from '../ui/GlassCard';
 import { PillButton } from '../ui/PillButton';
-import type { Trivia } from '../types';
+import { todayYMD } from '../lib/time';
+import { huntChallengeId, isHuntDone, shouldLockTrivia } from '../lib/hunt';
+import { completionPath } from '../lib/paths';
+import { textToBase64 } from '../lib/github';
+import { enqueue } from '../lib/sync';
+import { awardPoints } from '../lib/award';
+import { uid } from '../lib/uuid';
+import type { ChallengeCompletion, MemberId, Trivia } from '../types';
 
 export function PlaceDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const session = useSession();
   const myProfile = useMyProfile();
-  const place = useLiveQuery(() => (slug ? db.places.get(slug) : undefined), [slug]);
+  // `db.places.get` resolves `undefined` for a row that isn't there, which is
+  // the same value useLiveQuery reports while the query is still running. Map
+  // the miss to `null` so the two states are actually distinguishable —
+  // otherwise an unknown slug renders "Loading…" forever.
+  const place = useLiveQuery(
+    async () => (slug ? ((await db.places.get(slug)) ?? null) : null),
+    [slug],
+  );
   const heroUrl = usePlaceImage(slug);
+  const today = todayYMD();
+  const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
+  const challenges = useLiveQuery(() => db.challenges.toArray(), []) ?? [];
+  const itinerary = useLiveQuery(() => db.itinerary.where('date').equals(today).toArray(), [today]) ?? [];
+
+  // "Here today" = today's itinerary references this place.
+  const isHereToday = !!slug && itinerary.some((i) => i.placeSlug === slug);
+
+  const lockedTrivia = slug && session.identity
+    ? shouldLockTrivia({
+        placeSlug: slug,
+        challenges,
+        completions,
+        member: session.identity,
+        today,
+      })
+    : null;
 
   if (!slug) return null;
   if (place === undefined) {
@@ -96,14 +127,27 @@ export function PlaceDetail() {
           <section>
             <SectionHeader>Hunt for</SectionHeader>
             <GlassCard>
-              <ul className="space-y-2">
+              <ul className="space-y-1">
                 {place.huntFor.map((h, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[14px]">
-                    <Sparkles size={14} className="mt-1 text-sage-700 shrink-0" />
-                    <span>{h}</span>
-                  </li>
+                  <HuntRow
+                    key={i}
+                    label={h}
+                    slug={place.slug}
+                    index={i}
+                    done={isHuntDone(completions, session.identity!, place.slug, i)}
+                    // Only claimable while you're actually here — otherwise the
+                    // whole trip's list could be ticked off on day one from a
+                    // hotel room.
+                    claimable={isHereToday}
+                    myId={session.identity!}
+                  />
                 ))}
               </ul>
+              {!isHereToday && (
+                <div className="text-xs text-ink-600 mt-2">
+                  Tick these off for points when you're there.
+                </div>
+              )}
             </GlassCard>
           </section>
         )}
@@ -112,11 +156,34 @@ export function PlaceDetail() {
         {place.trivia.length > 0 && (
           <section>
             <SectionHeader>Trivia</SectionHeader>
-            <div className="space-y-3">
-              {place.trivia.map((q, i) => (
-                <TriviaCard key={i} q={q} />
-              ))}
-            </div>
+            {lockedTrivia ? (
+              // Answers stay hidden while the same questions are worth points
+              // in Quest. See shouldLockTrivia.
+              <GlassCard className="flex items-center gap-3">
+                <div className="text-2xl">🧠</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm">
+                    {place.trivia.length} question{place.trivia.length === 1 ? '' : 's'} worth points
+                  </div>
+                  <div className="text-xs text-ink-600">
+                    Take the quiz in Quest first — the answers show up here afterwards.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate('/quest')}
+                  className="text-xs rounded-full px-3 py-1.5 bg-ink-900 text-white shrink-0"
+                >
+                  Quest
+                </button>
+              </GlassCard>
+            ) : (
+              <div className="space-y-3">
+                {place.trivia.map((q, i) => (
+                  <TriviaCard key={i} q={q} />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -154,10 +221,102 @@ export function PlaceDetail() {
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-xs uppercase tracking-wider text-ink-400 mb-2 px-1 font-medium">
+    <div className="text-xs uppercase tracking-wider text-ink-600 mb-2 px-1 font-medium">
       {children}
     </div>
   );
+}
+
+const HUNT_POINTS = 10;
+
+/**
+ * One tickable hunt-for item.
+ *
+ * Completions are the existing record type with a synthesised challenge id, so
+ * these ride the same sync, dedup and points machinery as authored challenges
+ * without inventing a parallel one.
+ */
+function HuntRow({
+  label, slug, index, done, claimable, myId,
+}: {
+  label: string;
+  slug: string;
+  index: number;
+  done: boolean;
+  claimable: boolean;
+  myId: MemberId;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function claim() {
+    if (done || busy || !claimable) return;
+    setBusy(true);
+    try {
+      await completeHunt(slug, index, label, myId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => void claim()}
+        disabled={done || busy || !claimable}
+        aria-pressed={done}
+        className={`w-full flex items-start gap-2 text-left text-[14px] rounded-2xl px-2 py-2 transition ${
+          claimable && !done ? 'active:scale-[0.98] hover:bg-white/40' : ''
+        } ${done ? 'text-ink-600' : ''}`}
+      >
+        <span
+          className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full ${
+            done ? 'bg-sage-400 text-white' : 'ring-1 ring-sage-300 text-transparent'
+          }`}
+        >
+          <Check size={12} />
+        </span>
+        <span className={`flex-1 ${done ? 'line-through' : ''}`}>{label}</span>
+        {!done && claimable && (
+          <span className="text-xs text-sage-700 font-semibold shrink-0">+{HUNT_POINTS}</span>
+        )}
+      </button>
+    </li>
+  );
+}
+
+async function completeHunt(slug: string, index: number, label: string, by: MemberId) {
+  const challengeId = huntChallengeId(slug, index);
+  // Guard at the write, not just in the UI — a double tap can outrun the
+  // live query that disables the button.
+  const already = await db.completions
+    .where('challengeId').equals(challengeId)
+    .filter((c) => c.by === by)
+    .count();
+  if (already > 0) return;
+
+  const now = new Date();
+  const completion: ChallengeCompletion = {
+    id: uid(),
+    challengeId,
+    by,
+    completedAt: now.toISOString(),
+    awardedPoints: HUNT_POINTS,
+  };
+  await db.completions.put(completion);
+  await enqueue({
+    id: `comp-${completion.id}`,
+    enqueuedAt: now.toISOString(),
+    op: {
+      kind: 'put-file',
+      path: completionPath(completion),
+      contentBase64: textToBase64(JSON.stringify(completion)),
+      commitMessage: `hunt: ${label.slice(0, 40)}`,
+    },
+  });
+  await awardPoints({
+    to: by, by, amount: HUNT_POINTS, reason: 'challenge', refId: challengeId,
+  });
 }
 
 function TriviaCard({ q }: { q: Trivia }) {

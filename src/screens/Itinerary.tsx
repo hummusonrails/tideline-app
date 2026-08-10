@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
@@ -7,8 +8,9 @@ import { prettyDate, todayYMD, timeOfDay } from '../lib/time';
 import { useSession } from '../state/session';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
 import { useShabbatTimes, fmtTime } from '../lib/shabbat';
-import { Plane, Car, BedDouble, MapPin, Footprints, Anchor, Coffee, ChevronRight, Flame } from 'lucide-react';
-import type { ItineraryItem, ItineraryItemKind } from '../types';
+import { Plane, Car, BedDouble, MapPin, Footprints, Anchor, Coffee, ChevronRight, ChevronDown, Flame } from 'lucide-react';
+import { RouteMap } from '../ui/RouteMap';
+import type { ItineraryItem, ItineraryItemKind, RoutePoint } from '../types';
 
 const iconFor: Record<ItineraryItemKind, typeof Plane> = {
   'flight': Plane,
@@ -35,6 +37,25 @@ export function Itinerary() {
   const grouped = groupByDate(items);
   const dates = Object.keys(grouped).sort();
 
+  // Optional: only trips whose data includes config/route.json get a map.
+  const routeRow = useLiveQuery(() => db.meta.get('route'), []);
+  const routePoints = Array.isArray(routeRow?.value) ? (routeRow.value as RoutePoint[]) : [];
+  const visitedSlugs = new Set(
+    items.filter((i) => i.placeSlug && i.date < today).map((i) => i.placeSlug!),
+  );
+  const currentSlug = items.find((i) => i.date === today && i.placeSlug)?.placeSlug;
+
+  // Land on today rather than the start of the trip. Instant, not smooth —
+  // animating through two weeks of history on every visit is disorienting.
+  const scrolledRef = useRef(false);
+  useEffect(() => {
+    if (scrolledRef.current || dates.length === 0) return;
+    const el = document.getElementById(`d-${today}`);
+    if (!el) return;
+    scrolledRef.current = true;
+    el.scrollIntoView({ block: 'start', behavior: 'auto' });
+  }, [dates.length, today]);
+
   return (
     <Page
       eyebrow="Plan"
@@ -43,6 +64,14 @@ export function Itinerary() {
       avatarDisplayName={myProfile?.displayName}
       avatarSrc={myAvatar}
     >
+      {routePoints.length >= 2 && (
+        <RouteMap
+          points={routePoints}
+          visitedSlugs={visitedSlugs}
+          currentSlug={currentSlug}
+        />
+      )}
+
       {dates.length === 0 && (
         <GlassCard className="text-ink-600 text-sm text-center">
           Your itinerary will appear here once it's loaded.
@@ -52,7 +81,7 @@ export function Itinerary() {
       {dates.map((date) => {
         const isToday = date === today;
         return (
-          <section key={date} className={isToday ? 'scroll-mt-6' : ''} id={`d-${date}`}>
+          <section key={date} className="scroll-mt-6" id={`d-${date}`}>
             <div className="flex items-baseline justify-between mb-2 px-1">
               <div className="font-display text-lg font-semibold">{prettyDate(date)}</div>
               {isToday && (
@@ -92,6 +121,23 @@ function ItineraryItemCard({ item }: { item: ItineraryItem }) {
   const navigate = useNavigate();
   const Icon = iconFor[item.kind] ?? MapPin;
   const linkable = !!item.placeSlug;
+  // `body` and `confirmation` are authored in the trip data but were never
+  // rendered — flight notes and confirmation numbers were invisible in the app
+  // exactly when someone standing at a check-in desk would need them.
+  const expandable = !!(item.body || item.confirmation);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copyConfirmation() {
+    if (!item.confirmation) return;
+    try {
+      await navigator.clipboard.writeText(item.confirmation);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard can be refused; the number is on screen to read either way.
+    }
+  }
 
   const inner = (
     <>
@@ -112,22 +158,74 @@ function ItineraryItemCard({ item }: { item: ItineraryItem }) {
           <div className="text-xs text-ink-600 mt-0.5 truncate">{item.subtitle}</div>
         )}
       </div>
-      {linkable && <ChevronRight size={16} className="text-ink-400 shrink-0" />}
+      {linkable && <ChevronRight size={16} className="text-ink-600 shrink-0" />}
     </>
+  );
+
+  const details = open && expandable && (
+    <div className="mt-3 pt-3 border-t border-white/60 space-y-2">
+      {item.body && (
+        <div className="text-xs text-ink-700 whitespace-pre-line leading-relaxed">{item.body}</div>
+      )}
+      {item.confirmation && (
+        <button
+          type="button"
+          onClick={() => void copyConfirmation()}
+          className="w-full flex items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 text-left"
+        >
+          <span className="min-w-0">
+            <span className="block text-[10px] uppercase tracking-wider text-ink-600">Confirmation</span>
+            <span className="block font-mono tabular text-sm truncate">{item.confirmation}</span>
+          </span>
+          <span className="text-xs font-semibold text-ocean shrink-0">
+            {copied ? 'Copied' : 'Copy'}
+          </span>
+        </button>
+      )}
+    </div>
+  );
+
+  // The main row keeps its navigation; expansion lives on its own control so
+  // the two never fight over a tap.
+  const chevron = expandable && (
+    <button
+      type="button"
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+      aria-label={open ? `Hide details for ${item.title}` : `Show details for ${item.title}`}
+      className="grid h-9 w-9 place-items-center rounded-full bg-white/60 text-ink-700 shrink-0"
+    >
+      <ChevronDown size={15} className={`transition ${open ? 'rotate-180' : ''}`} />
+    </button>
   );
 
   if (linkable) {
     return (
-      <button
-        type="button"
-        onClick={() => navigate(`/place/${item.placeSlug}`)}
-        className="glass rounded-[28px] p-4 flex gap-3 items-center w-full text-left active:scale-[0.98] transition"
-      >
-        {inner}
-      </button>
+      <GlassCard className="!p-4">
+        <div className="flex gap-3 items-center">
+          <button
+            type="button"
+            onClick={() => navigate(`/place/${item.placeSlug}`)}
+            className="flex gap-3 items-center flex-1 min-w-0 text-left active:scale-[0.98] transition"
+          >
+            {inner}
+          </button>
+          {chevron}
+        </div>
+        {details}
+      </GlassCard>
     );
   }
-  return <GlassCard className="!p-4 flex gap-3 items-center">{inner}</GlassCard>;
+
+  return (
+    <GlassCard className="!p-4">
+      <div className="flex gap-3 items-center">
+        <div className="flex gap-3 items-center flex-1 min-w-0">{inner}</div>
+        {chevron}
+      </div>
+      {details}
+    </GlassCard>
+  );
 }
 
 function groupByDate(items: ItineraryItem[]): Record<string, ItineraryItem[]> {

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { LockKeyhole, ArrowRight, AlertCircle } from 'lucide-react';
+import { LockKeyhole, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Avatar, gradientFor } from '../ui/Avatar';
 import { GlassCard } from '../ui/GlassCard';
 import { PillButton } from '../ui/PillButton';
 import { useSession } from '../state/session';
 import { decryptSecret, type EncryptedBundle } from '../lib/crypto';
 import { getBranch, GHError } from '../lib/github';
+import { shouldAttemptNetwork } from '../lib/net';
 import type { MemberManifest, MemberId } from '../types';
 
 export function Onboarding() {
@@ -14,6 +15,7 @@ export function Onboarding() {
   const [manifest, setManifest] = useState<MemberManifest | null>(null);
   const [pickedId, setPickedId] = useState<MemberId | null>(null);
   const [passphrase, setPassphrase] = useState('');
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +41,9 @@ export function Onboarding() {
       // Validate the credentials can actually reach the backend before we
       // commit to a session — otherwise a wrong token/owner/repo only shows
       // up later as a silent background sync failure.
-      if (navigator.onLine) {
+      // `navigator.onLine` is true on a captive-portal WiFi, which would make
+      // every at-sea unlock wait out a doomed request before proceeding.
+      if (shouldAttemptNetwork()) {
         try {
           await getBranch({ owner: payload.owner, repo: payload.repo, token: payload.pat, branch: 'main' });
         } catch (ve: unknown) {
@@ -145,18 +149,32 @@ export function Onboarding() {
                   strokeWidth={1.75}
                 />
                 <input
-                  type="password"
+                  type={showPassphrase ? 'text' : 'password'}
                   autoFocus
                   inputMode="text"
                   autoComplete="current-password"
+                  // iOS autocorrect and auto-capitalisation happily "fix" a
+                  // passphrase into something that won't decrypt, and the only
+                  // feedback is a wrong-passphrase error.
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void unlock();
                   }}
-                  className="w-full rounded-full bg-white/80 pl-11 pr-4 py-3 text-base outline-none ring-1 ring-white/80 focus:ring-ocean/40"
+                  className="w-full rounded-full bg-white/80 pl-11 pr-12 py-3 text-base outline-none ring-1 ring-white/80 focus:ring-ocean/40"
                   placeholder="Passphrase"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassphrase((v) => !v)}
+                  aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-full text-ink-600"
+                >
+                  {showPassphrase ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
               {error && (
                 <div className="mt-3 text-coral text-sm flex items-center justify-center gap-1.5">

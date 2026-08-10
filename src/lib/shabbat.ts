@@ -13,3 +13,17 @@ export function useShabbatTimes(): ShabbatTimes {
 export function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
+
+/**
+ * Every date the times file marks as Shabbat.
+ *
+ * A Friday entry carries candle lighting and the Saturday entry carries
+ * havdalah, so both dates count — the observance spans them.
+ */
+export function shabbatDates(times: ShabbatTimes): Set<string> {
+  const out = new Set<string>();
+  for (const [date, t] of Object.entries(times ?? {})) {
+    if (t && (t.candleLighting || t.havdalah)) out.add(date);
+  }
+  return out;
+}

@@ -1,4 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
@@ -7,7 +8,7 @@ import { db } from '../lib/db';
 import { todayYMD, diffHuman } from '../lib/time';
 import { DEFAULT_CONFIG, currentTier, nextTier, totalPoints, streakLength } from '../lib/points';
 import { TierBadge } from '../ui/TierBadge';
-import { Flame, Trophy, ArrowUpRight, ChevronRight, CalendarDays } from 'lucide-react';
+import { Flame, Trophy, ArrowUpRight, ChevronRight, CalendarDays, Ship, X, Play } from 'lucide-react';
 import { enqueue } from '../lib/sync';
 import { awardPoints } from '../lib/award';
 import { uid } from '../lib/uuid';
@@ -15,10 +16,14 @@ import { habitPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
 import { usePlaceImage } from '../lib/places';
-import { useShabbatTimes, fmtTime } from '../lib/shabbat';
+import { useShabbatTimes, fmtTime, shabbatDates } from '../lib/shabbat';
 import { useTripMeta, isBeforeTrip } from '../lib/trip';
 import { isShabbatNow, prettyDate } from '../lib/time';
-import type { ItineraryItem, Place, HabitCheckIn } from '../types';
+import { useNetState } from '../lib/net';
+import { tierAckKey, tierToCelebrate } from '../lib/celebrate';
+import { Celebration } from '../ui/Celebration';
+import { localDay } from '../lib/recap';
+import type { ItineraryItem, Place, HabitCheckIn, PointEvent, PointsConfig, Tier } from '../types';
 
 export function Today() {
   const session = useSession();
@@ -58,19 +63,37 @@ export function Today() {
   const myPoints = totalPoints(events, id);
   const tier = currentTier(myPoints, DEFAULT_CONFIG);
   const next = nextTier(myPoints, DEFAULT_CONFIG);
-  const streak = streakLength(habits, id, today);
+  // Shabbat days don't break the chain — see streakLength.
+  const shabbatFree = useMemo(() => shabbatDates(shabbatTimes), [shabbatTimes]);
+  const streak = streakLength(habits, id, today, shabbatFree);
   const checkedInToday = habits.some((h) => h.by === id && h.date === today);
+  const [checkingIn, setCheckingIn] = useState(false);
 
   const firstName = myProfile?.displayName ?? '';
+
+  async function onCheckIn() {
+    if (checkedInToday || checkingIn) return;
+    setCheckingIn(true);
+    try {
+      await checkInHabit(id, today, habits, shabbatFree);
+    } finally {
+      setCheckingIn(false);
+    }
+  }
 
   return (
     <Page
       eyebrow={currentPlace ? 'You are in' : 'Today'}
-      title={currentPlace ? currentPlace.name : firstName ? `Hi, ${firstName}` : 'Welcome'}
+      // The hero card below already greets by name; repeating it in the header
+      // wastes the most prominent line on the screen.
+      title={currentPlace ? currentPlace.name : (tripMeta?.name ?? 'Today')}
       avatarSeed={id}
       avatarDisplayName={myProfile?.displayName}
       avatarSrc={myAvatar}
     >
+      <SeaBanner />
+      <TierCelebration events={events} member={id} />
+      <RecapPrompt today={today} />
       {(onShabbat || todayShabbat) && (
         <div className="glass rounded-[28px] px-5 py-4 bg-gradient-to-br from-white/60 to-sage-100/50">
           <div className="font-display text-lg font-semibold">🕯️ Shabbat shalom</div>
@@ -117,26 +140,34 @@ export function Today() {
       {/* Tier + habit row */}
       <div className="grid grid-cols-2 gap-3">
         <GlassCard className="!p-4">
-          <div className="text-xs uppercase tracking-wider text-ink-400">Your tier</div>
+          <div className="text-xs uppercase tracking-wider text-ink-600">Your tier</div>
           <div className="mt-2"><TierBadge tier={tier} /></div>
           {next && (
             <div className="mt-2 text-xs text-ink-600">{next.remaining} pts to {next.tier}</div>
           )}
         </GlassCard>
         <GlassCard className="!p-4">
-          <div className="text-xs uppercase tracking-wider text-ink-400">
+          <div className="text-xs uppercase tracking-wider text-ink-600">
             {myProfile?.habit?.emoji ?? '🔥'} Daily habit
           </div>
-          <button
-            type="button"
-            disabled={checkedInToday}
-            onClick={() => void checkInHabit(id, today, habits)}
-            className={`mt-2 w-full text-xs rounded-full px-3 py-2 transition ${
-              checkedInToday ? 'bg-sage-200 text-sage-700' : 'bg-ink-900 text-white active:scale-[0.97]'
-            }`}
-          >
-            {checkedInToday ? '✓ done today' : `+ ${myProfile?.habit?.label ?? 'check in'}`}
-          </button>
+          {onShabbat ? (
+            // No check-in prompt during Shabbat — and say plainly that the
+            // streak is safe, so nobody feels pulled to break it.
+            <div className="mt-2 w-full text-xs rounded-full px-3 py-2 bg-sage-200 text-sage-700 text-center">
+              🕯️ Your streak is safe
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={checkedInToday || checkingIn}
+              onClick={() => void onCheckIn()}
+              className={`mt-2 w-full text-xs rounded-full px-3 py-2 transition ${
+                checkedInToday ? 'bg-sage-200 text-sage-700' : 'bg-ink-900 text-white active:scale-[0.97]'
+              } disabled:opacity-60`}
+            >
+              {checkedInToday ? '✓ done today' : `+ ${myProfile?.habit?.label ?? 'check in'}`}
+            </button>
+          )}
         </GlassCard>
       </div>
 
@@ -144,7 +175,7 @@ export function Today() {
       {nextEvent && (
         <GlassCard className="flex items-center justify-between !py-4">
           <div className="min-w-0">
-            <div className="text-xs uppercase tracking-wider text-ink-400 mb-0.5">Up next</div>
+            <div className="text-xs uppercase tracking-wider text-ink-600 mb-0.5">Up next</div>
             <div className="font-medium truncate">{nextEvent.title}</div>
             {nextEvent.subtitle && (
               <div className="text-xs text-ink-600 truncate">{nextEvent.subtitle}</div>
@@ -313,6 +344,123 @@ function daysUntil(target: string, from: string): number {
   return Math.round((t - f) / 86_400_000);
 }
 
+/**
+ * Explains sea mode once, then stays out of the way.
+ *
+ * The point is reassurance, not alarm: at sea the app is working exactly as
+ * intended, and the only thing worth telling someone is that nothing is being
+ * lost and how to share it with the family. Dismissal sticks for 12 hours so
+ * it can reappear the next day without becoming wallpaper.
+ */
+function SeaBanner() {
+  const navigate = useNavigate();
+  const atSea = useNetState((s) => s.state) === 'no-internet';
+  const pending = useLiveQuery(() => db.outbox.count()) ?? 0;
+  const dismissedRow = useLiveQuery(() => db.meta.get('sea-banner-dismissed'));
+
+  const dismissedAt = typeof dismissedRow?.value === 'number' ? dismissedRow.value : 0;
+  const recentlyDismissed = Date.now() - dismissedAt < 12 * 60 * 60 * 1000;
+
+  if (!atSea || recentlyDismissed) return null;
+
+  return (
+    <div className="glass rounded-[28px] px-5 py-4 flex items-start gap-3">
+      <Ship size={18} className="text-ocean shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm">Sea mode</div>
+        <div className="text-xs text-ink-600 mt-0.5">
+          {pending > 0
+            ? `${pending} thing${pending === 1 ? '' : 's'} saved on this phone. Nothing is lost — it uploads by itself when there's internet.`
+            : "No internet right now. Everything you post is saved on this phone and uploads by itself later."}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/devices')}
+          className="mt-2 text-xs font-semibold text-ocean"
+        >
+          Sync with the family →
+        </button>
+      </div>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => void db.meta.put({ key: 'sea-banner-dismissed', value: Date.now() })}
+        className="text-ink-600 p-1 shrink-0"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Offers the day's playback, but only in the evening and only if the day
+ * actually produced something. Showing it at 9am, or on a day with no photos,
+ * would train people to ignore it.
+ */
+function RecapPrompt({ today }: { today: string }) {
+  const navigate = useNavigate();
+  const photos = useLiveQuery(() => db.photos.toArray(), []) ?? [];
+  const hour = new Date().getHours();
+
+  const todayPhotos = photos.filter((p) => localDay(p.takenAt) === today).length;
+  if (hour < 17 || todayPhotos === 0) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/recap')}
+      className="w-full glass rounded-[28px] px-5 py-4 flex items-center gap-3 text-left active:scale-[0.99] transition"
+    >
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-ink-900 text-white shrink-0">
+        <Play size={16} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-medium">Tonight's recap</span>
+        <span className="block text-xs text-ink-600">
+          {todayPhotos} photo{todayPhotos === 1 ? '' : 's'} from today, plus the scores
+        </span>
+      </span>
+      <ChevronRight size={16} className="text-ink-600 shrink-0" />
+    </button>
+  );
+}
+
+/**
+ * Fires once per upward tier crossing, per member, per device.
+ *
+ * The acknowledgement lives in `db.meta` rather than component state so a
+ * reload — or the points arriving via a background sync while the app is
+ * closed — still produces exactly one celebration.
+ */
+function TierCelebration({ events, member }: { events: PointEvent[]; member: string }) {
+  const ackRow = useLiveQuery(() => db.meta.get(tierAckKey(member)), [member]);
+  const configRow = useLiveQuery(() => db.pointsConfig.get('config'), []);
+  const [dismissed, setDismissed] = useState(false);
+
+  // Undefined means the query hasn't resolved; treating that as "never
+  // acknowledged" would celebrate on every single mount.
+  if (ackRow === undefined) return null;
+
+  const config = (configRow?.value as PointsConfig | undefined) ?? DEFAULT_CONFIG;
+  const acknowledged = (ackRow?.value as Tier | undefined) ?? null;
+  const tier = tierToCelebrate(events, member, config, acknowledged);
+  if (!tier || dismissed) return null;
+
+  const rewardLabel = config.tiers.find((t) => t.tier === tier)?.rewardLabel;
+
+  return (
+    <Celebration
+      tier={tier}
+      rewardLabel={rewardLabel}
+      onDismiss={() => {
+        setDismissed(true);
+        void db.meta.put({ key: tierAckKey(member), value: tier });
+      }}
+    />
+  );
+}
+
 function dayLabel(date: string, today: string): string {
   const d = daysUntil(date, today);
   if (d === 0) return 'Today';
@@ -323,7 +471,17 @@ function dayLabel(date: string, today: string): string {
   return monthName;
 }
 
-async function checkInHabit(by: string, date: string, priorHabits: HabitCheckIn[]) {
+async function checkInHabit(
+  by: string,
+  date: string,
+  priorHabits: HabitCheckIn[],
+  freeDates?: ReadonlySet<string>,
+) {
+  // Re-check at write time, not just in the UI: two fast taps can both pass
+  // the disabled check before the live query reports the first one, and each
+  // would mint its own points.
+  if (priorHabits.some((h) => h.by === by && h.date === date)) return;
+
   const now = new Date();
   const id = uid();
   const record: HabitCheckIn = { id, by, date, at: now.toISOString() };
@@ -343,7 +501,7 @@ async function checkInHabit(by: string, date: string, priorHabits: HabitCheckIn[
   await awardPoints({ to: by, by, amount: 5, reason: 'streak', refId: `habit-${date}` });
 
   // Streak bonus once the streak (including today) reaches 3+ consecutive days.
-  const streakNow = streakLength([...priorHabits, record], by, date);
+  const streakNow = streakLength([...priorHabits, record], by, date, freeDates);
   if (streakNow >= 3) {
     await awardPoints({ to: by, by, amount: DEFAULT_CONFIG.earn.streakBonus, reason: 'streak', refId: `streak-${date}` });
   }

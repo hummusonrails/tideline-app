@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
-import { CloudUpload, Cloud } from 'lucide-react';
+import { CloudUpload, Cloud, Ship } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Avatar } from './Avatar';
 import { db } from '../lib/db';
+import { useNetState } from '../lib/net';
 
 interface PageProps {
   title?: string;
@@ -26,6 +27,7 @@ export function Page({
 }: PageProps) {
   const navigate = useNavigate();
   const pending = useLiveQuery(() => db.outbox.count()) ?? 0;
+  const atSea = useNetState((s) => s.state) === 'no-internet';
   return (
     <div className="pt-[max(env(safe-area-inset-top),1rem)] px-4">
       <header className="flex items-center justify-between mb-5">
@@ -41,19 +43,31 @@ export function Page({
             </button>
           )}
           <div>
-            {eyebrow && <div className="text-xs uppercase tracking-wider text-ink-400 font-medium">{eyebrow}</div>}
+            {eyebrow && <div className="text-xs uppercase tracking-wider text-ink-600 font-medium">{eyebrow}</div>}
             {title && <h1 className="font-display text-2xl font-semibold leading-tight">{title}</h1>}
           </div>
         </div>
         {showBell && (
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('tideline:outbox-enqueued'))}
+            // At sea, retrying is pointless and the useful action is to go
+            // sync with someone face to face.
+            onClick={() =>
+              atSea
+                ? navigate('/devices')
+                : window.dispatchEvent(new CustomEvent('tideline:outbox-enqueued'))
+            }
             className="relative grid h-10 w-10 place-items-center rounded-full glass"
-            aria-label={pending > 0 ? `${pending} items waiting to sync — tap to retry` : 'All synced'}
-            title={pending > 0 ? `${pending} waiting to sync` : 'All synced'}
+            aria-label={syncChipLabel(atSea, pending)}
+            title={syncChipLabel(atSea, pending)}
           >
-            {pending > 0 ? <CloudUpload size={18} strokeWidth={1.75} /> : <Cloud size={18} strokeWidth={1.75} />}
+            {atSea ? (
+              <Ship size={18} strokeWidth={1.75} className="text-ocean" />
+            ) : pending > 0 ? (
+              <CloudUpload size={18} strokeWidth={1.75} />
+            ) : (
+              <Cloud size={18} strokeWidth={1.75} />
+            )}
             {pending > 0 && (
               <span className="absolute -top-1 -right-1 grid h-5 min-w-5 place-items-center rounded-full bg-coral px-1 text-[10px] font-semibold text-white ring-2 ring-sage-50">
                 {pending > 9 ? '9+' : pending}
@@ -65,4 +79,13 @@ export function Page({
       <main className="space-y-5">{children}</main>
     </div>
   );
+}
+
+function syncChipLabel(atSea: boolean, pending: number): string {
+  if (atSea) {
+    return pending > 0
+      ? `Sea mode — ${pending} saved on this phone. Tap to sync with the family.`
+      : 'Sea mode — tap to sync with the family';
+  }
+  return pending > 0 ? `${pending} items waiting to sync — tap to retry` : 'All synced';
 }

@@ -146,6 +146,63 @@ export async function verify(
   );
 }
 
+/**
+ * Signed-payload envelope for transports that carry data without a live,
+ * mutually-authenticated connection — the QR bulk stream and AirDrop file
+ * bundles. Over WebRTC the handshake already proves who's talking; those
+ * offline paths have no handshake, so the bytes have to carry their own proof.
+ *
+ * Domain-separated from the pairing signature so a payload can never be
+ * replayed as a handshake, or the reverse.
+ */
+const PAYLOAD_SIG_PREFIX = 'tideline-payload:';
+
+export interface SignedPayload {
+  publicKey: string;   // base64 raw P-256
+  fingerprint: string;
+  sig: string;         // base64
+}
+
+async function payloadDigest(body: Uint8Array): Promise<Uint8Array> {
+  const digest = await sha256(body);
+  const prefix = enc.encode(PAYLOAD_SIG_PREFIX);
+  const buf = new Uint8Array(prefix.byteLength + digest.byteLength);
+  buf.set(prefix, 0);
+  buf.set(digest, prefix.byteLength);
+  return buf;
+}
+
+export async function signPayload(id: PeerIdentity, body: Uint8Array): Promise<SignedPayload> {
+  const sig = await sign(id, await payloadDigest(body));
+  return {
+    publicKey: id.publicKeyB64,
+    fingerprint: id.fingerprint,
+    sig: bytesToB64(sig),
+  };
+}
+
+/**
+ * Check a payload signature and that the claimed fingerprint really derives
+ * from the enclosed key.
+ *
+ * Verifying the fingerprint matters as much as the signature: without it,
+ * anyone could sign a payload with their own key while claiming a trusted
+ * peer's fingerprint, and the importer's trust lookup would wave it through.
+ */
+export async function verifyPayload(
+  signed: SignedPayload,
+  body: Uint8Array,
+): Promise<boolean> {
+  try {
+    const pubRaw = b64ToBytes(signed.publicKey);
+    if ((await fingerprintFromPublicKey(pubRaw)) !== signed.fingerprint) return false;
+    const key = await importPublicKey(pubRaw);
+    return await verify(key, b64ToBytes(signed.sig), await payloadDigest(body));
+  } catch {
+    return false;
+  }
+}
+
 /** Forget the cached identity (used by tests). Does NOT wipe persistent storage. */
 export function _resetIdentityCacheForTests(): void {
   cached = null;

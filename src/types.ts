@@ -104,9 +104,26 @@ export interface Place {
   tags: string[];
 }
 
+/**
+ * One stop on the hand-authored route drawing, in a 0–100 viewBox.
+ *
+ * Lives in the private trip data so the public app ships no geography.
+ */
+export interface RoutePoint {
+  slug: string;
+  x: number;
+  y: number;
+  label?: string;
+}
+
 // ---------- Messages & photos ----------
 
-export type MessageKind = 'message' | 'journal';
+/**
+ * `poll` bodies encode the question and options; votes ride on Reaction
+ * events. See lib/poll.ts. An older build renders one as a plain message,
+ * which is an acceptable degradation rather than a break.
+ */
+export type MessageKind = 'message' | 'journal' | 'poll';
 
 export interface Message {
   id: string;               // uuid
@@ -114,8 +131,35 @@ export interface Message {
   sentAt: string;           // ISO
   body: string;
   kind?: MessageKind;       // defaults to 'message'
-  reactions?: Record<MemberId, string>;  // memberId -> emoji
+  /**
+   * @deprecated Legacy inline reactions, still read so messages written by
+   * older builds keep rendering. New reactions are {@link Reaction} events —
+   * see that type for why.
+   */
+  reactions?: Record<MemberId, string>;
   attachmentPhotoId?: string;
+}
+
+/**
+ * A reaction as its own immutable event.
+ *
+ * Reactions used to be a mutable map on the Message. That shape can't survive
+ * either of our sync paths: gossip dedupes by record id, so a message the peer
+ * already has is skipped and the new reaction never arrives; and over Git two
+ * people reacting to the same message write the same file, so the second
+ * commit erases the first. Making each reaction a separate record with its own
+ * id restores idempotent, conflict-free convergence.
+ *
+ * `emoji: null` is a retraction — tapping the same emoji again. Keeping it as
+ * a record rather than a delete means the retraction propagates like anything
+ * else instead of relying on a tombstone.
+ */
+export interface Reaction {
+  id: string;               // uuid
+  messageId: string;
+  by: MemberId;
+  emoji: string | null;
+  at: string;               // ISO
 }
 
 export interface Photo {

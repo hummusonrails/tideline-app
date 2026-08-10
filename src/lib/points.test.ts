@@ -58,6 +58,47 @@ describe('points engine', () => {
     expect(streakLength(withGap, 'a', '2099-03-05')).toBe(1);
   });
 
+  describe('streaks around Shabbat', () => {
+    const checkIn = (date: string, by = 'a'): HabitCheckIn => ({
+      id: `${by}-${date}`, by, date, at: '',
+    });
+
+    it('keeps the chain across a Shabbat with no check-in', () => {
+      // Thu, Fri, [Sat off], Sun — should read as four days of commitment,
+      // counting the three actual check-ins.
+      const checkIns = [checkIn('2026-08-13'), checkIn('2026-08-14'), checkIn('2026-08-16')];
+      const free = new Set(['2026-08-14', '2026-08-15']);
+      expect(streakLength(checkIns, 'a', '2026-08-16', free)).toBe(3);
+    });
+
+    it('would have broken the same streak without the exemption', () => {
+      const checkIns = [checkIn('2026-08-13'), checkIn('2026-08-14'), checkIn('2026-08-16')];
+      expect(streakLength(checkIns, 'a', '2026-08-16')).toBe(1);
+    });
+
+    it('does not treat Shabbat itself as a missed day when it is today', () => {
+      const checkIns = [checkIn('2026-08-13'), checkIn('2026-08-14')];
+      const free = new Set(['2026-08-14', '2026-08-15']);
+      expect(streakLength(checkIns, 'a', '2026-08-15', free)).toBe(2);
+    });
+
+    it('does not award streak for free days on their own', () => {
+      const free = new Set(['2026-08-14', '2026-08-15']);
+      expect(streakLength([], 'a', '2026-08-15', free)).toBe(0);
+    });
+
+    it('still breaks on a genuine missed weekday', () => {
+      const checkIns = [checkIn('2026-08-10'), checkIn('2026-08-13')];
+      const free = new Set(['2026-08-14', '2026-08-15']);
+      expect(streakLength(checkIns, 'a', '2026-08-13', free)).toBe(1);
+    });
+
+    it('behaves identically to before when no free dates are given', () => {
+      const checkIns = [checkIn('2099-03-01'), checkIn('2099-03-02'), checkIn('2099-03-03')];
+      expect(streakLength(checkIns, 'a', '2099-03-03', new Set())).toBe(3);
+    });
+  });
+
   it('enforces per-day caps', () => {
     const date = '2099-03-01';
     const events = [

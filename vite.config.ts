@@ -47,7 +47,10 @@ export default defineConfig({
         // fallback and the api.github.com rule below stay exactly as they are.
         // Resolved relative to the SW, i.e. `${base}push-sw.js`.
         importScripts: ['push-sw.js'],
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
+        // `.enc` matters: the per-member bundles are what a passphrase unlock
+        // decrypts. Without them precached, an unlock with no route to the
+        // network — the normal state at sea — fails and locks the app.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,json,enc}'],
         runtimeCaching: [
           {
             // The data backend is always network-only; content is mirrored

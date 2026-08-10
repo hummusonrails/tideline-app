@@ -1,5 +1,6 @@
 import { db } from './db';
 import { eventIdFromPath } from './paths';
+import { getNetState, shouldAttemptNetwork } from './net';
 import {
   type GHCtx,
   getBranch,
@@ -24,6 +25,7 @@ import type {
   Place,
   ItineraryDoc,
   PointsConfig,
+  Reaction,
 } from '../types';
 
 /**
@@ -49,7 +51,7 @@ export function startSyncLoop(opts: SyncOptions): () => void {
   let stopped = false;
 
   const tick = () => {
-    if (stopped || document.hidden || !navigator.onLine) return;
+    if (stopped || document.hidden || !shouldAttemptNetwork()) return;
     void Promise.allSettled([pullAll(ctx), drainOutbox(ctx, opts.identity)]);
   };
 
@@ -58,7 +60,7 @@ export function startSyncLoop(opts: SyncOptions): () => void {
   };
   const onOnline = () => tick();
   const onEnqueue = () => {
-    if (navigator.onLine) void drainOutbox(ctx, opts.identity);
+    if (shouldAttemptNetwork()) void drainOutbox(ctx, opts.identity);
   };
 
   document.addEventListener('visibilitychange', onVis);
@@ -124,8 +126,14 @@ async function drainOutbox(ctx: GHCtx, _identity: MemberId): Promise<void> {
         window.dispatchEvent(new CustomEvent('tideline:auth-expired'));
         return;
       }
-      // Network / 5xx — break and retry next tick rather than burning the queue.
-      if (err instanceof GHError && err.status >= 500) return;
+      // Connectivity-shaped failures — timeout, DNS, captive portal, 5xx —
+      // mean the *next* item would fail too. Stop and retry on a later tick
+      // rather than burning an attempt on every queued write.
+      //
+      // Status 0 is the timeout/network wrapper from github.ts. It has to be
+      // named explicitly: those errors are GHErrors now, so the
+      // `!(err instanceof GHError)` guard below no longer catches them.
+      if (err instanceof GHError && (err.status === 0 || err.status >= 500)) return;
       if (!(err instanceof GHError)) return;
     }
   }
@@ -224,19 +232,24 @@ async function pullAll(ctx: GHCtx): Promise<void> {
       window.dispatchEvent(new CustomEvent('tideline:auth-expired'));
       return;
     }
-    // Any other failure (403/404 access, 5xx, offline) used to be swallowed,
-    // leaving the UI stuck on "loading" forever. Record a readable error so
-    // the UI can surface it.
+    // Not being able to reach GitHub is the *expected* condition for most of
+    // this trip, not an error worth a banner. If we wrote `sync-error` here,
+    // one failed pull at sea would pin a red banner over every screen for the
+    // rest of the cruise. Sea state is surfaced by the header chip and the
+    // Today banner instead.
+    const connectivityShaped =
+      (err instanceof GHError && (err.status === 0 || err.status >= 500)) ||
+      !(err instanceof GHError) ||
+      getNetState() === 'no-internet';
+    if (connectivityShaped) return;
+
+    // What's left is a real misconfiguration the user has to act on.
     const where = `${ctx.owner}/${ctx.repo}`;
     let message = 'Something went wrong syncing your data.';
     if (err instanceof GHError && err.status === 404) {
       message = `Can't find ${where} (404) — the token can't see that repo. Check the owner/repo spelling and that the token has it selected.`;
     } else if (err instanceof GHError && err.status === 403) {
       message = `Access denied to ${where} (403) — token needs Contents: Read and write.`;
-    } else if (!navigator.onLine) {
-      message = "You're offline. Tideline will sync when you're back online.";
-    } else if (err instanceof GHError && err.status >= 500) {
-      message = 'GitHub seems to be having trouble. Trying again shortly.';
     }
     await db.meta.put({
       key: 'sync-error',
@@ -341,6 +354,13 @@ function routeFor(path: string): Route | null {
       upsert: async (p) => { await db.pointsConfig.put({ key: 'config', value: p as PointsConfig }); },
     };
   }
+  // Route drawing for the itinerary map (optional — absent in most trips).
+  if (path === 'config/route.json') {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.meta.put({ key: 'route', value: p }); },
+    };
+  }
   // Shabbat times
   if (path === 'config/shabbat-times.json') {
     return {
@@ -403,6 +423,13 @@ function routeFor(path: string): Route | null {
     return {
       kind: 'json',
       upsert: async (p) => { await db.habits.put(p as HabitCheckIn); },
+    };
+  }
+  // Reaction events
+  if (path.startsWith('reactions/') && path.endsWith('.json')) {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.reactions.put(p as Reaction); },
     };
   }
   return null;

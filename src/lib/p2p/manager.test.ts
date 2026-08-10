@@ -24,9 +24,21 @@ class MockPeer implements PeerLike {
   events: PeerEvents = {};
   partner: MockPeer | null = null;
   closed = false;
+  /** Mirrors a data channel that has already completed ICE. */
+  open = true;
+  isOpen(): boolean { return this.open && !this.closed; }
+  /** Simulate a peer adopted before ICE finished, then completing. */
+  openNow(): void {
+    if (this.open) return;
+    this.open = true;
+    this.events.onOpen?.();
+  }
   setEvents(events: PeerEvents): void { this.events = { ...this.events, ...events }; }
   sendText(text: string): void {
-    if (this.closed || !this.partner) return;
+    // Mirrors the real Peer: sending before the channel opens throws, which is
+    // what used to tear down connections mid-handshake.
+    if (!this.isOpen()) throw new Error('peer not open');
+    if (!this.partner) return;
     queueMicrotask(() => this.partner?.events.onText?.(text));
   }
   async sendBinary(bytes: Uint8Array): Promise<void> {
@@ -101,6 +113,7 @@ beforeEach(async () => {
     db.pointEvents.clear(),
     db.completions.clear(),
     db.habits.clear(),
+    db.reactions.clear(),
     db.outbox.clear(),
     db.peers.clear(),
     db.meta.clear(),
@@ -282,5 +295,149 @@ describe('PeerManager — gossip exchange', () => {
     await tick(); await tick();
     expect(await db.outbox.count()).toBe(0);
     expect(await db.messages.count()).toBe(0);
+  });
+
+  it('ignores a collection this build does not know about', async () => {
+    const { manager, partner } = await trustedAdopt();
+    const { texts } = captureFrames(partner);
+
+    // A peer on a newer build advertising something we've never heard of must
+    // not take the connection down.
+    partner.sendText(JSON.stringify({ type: 'have', collection: 'sparkles', ids: ['s1'] }));
+    partner.sendText(JSON.stringify({ type: 'want', collection: 'sparkles', ids: ['s1'] }));
+    partner.sendText(JSON.stringify({ type: 'data', collection: 'sparkles', records: [{ id: 's1' }] }));
+    await tick(); await tick();
+
+    expect(texts.map((t) => JSON.parse(t)).some((m) => m.collection === 'sparkles')).toBe(false);
+    expect(manager.summarize()[0].state).not.toBe('closed');
+
+    // And the connection still works afterwards.
+    partner.sendText(JSON.stringify({ type: 'have', collection: 'messages', ids: ['afterwards'] }));
+    await flushUntil(() =>
+      texts.map((t) => JSON.parse(t)).some((m) => m.type === 'want' && m.ids?.includes('afterwards')),
+    );
+  });
+
+  it('replies to a ping with its own clock so the peer can estimate skew', async () => {
+    const { partner } = await trustedAdopt();
+    const { texts } = captureFrames(partner);
+
+    partner.sendText(JSON.stringify({ type: 'ping', at: 1_000 }));
+    await flushUntil(() => texts.map((t) => JSON.parse(t)).some((m) => m.type === 'pong'));
+
+    const pong = texts.map((t) => JSON.parse(t)).find((m) => m.type === 'pong');
+    expect(pong.at).toBe(1_000);
+    expect(pong.now).toBeTypeOf('number');
+  });
+
+  it('records a clock offset from a pong', async () => {
+    const { manager } = await trustedAdopt();
+    const fingerprint = manager.summarize()[0].fingerprint;
+    expect(manager.summarize()[0].clockOffsetMs).toBeNull();
+
+    // Answer a ping as if our clock and theirs are an hour apart.
+    const sentAt = Date.now();
+    const mp = manager as unknown as {
+      peers: Map<string, unknown>;
+      notePong: (peer: unknown, msg: { type: 'pong'; at: number; now: number }) => void;
+    };
+    mp.notePong(mp.peers.get(fingerprint), {
+      type: 'pong',
+      at: sentAt,
+      now: sentAt + 3_600_000,
+    });
+    const offset = manager.summarize()[0].clockOffsetMs;
+    expect(offset).toBeGreaterThan(3_500_000);
+    expect(offset).toBeLessThan(3_700_000);
+  });
+
+  it('pushes new local writes immediately instead of waiting for the tick', async () => {
+    const { partner } = await trustedAdopt();
+    const { texts } = captureFrames(partner);
+
+    await db.messages.put({
+      id: 'urgent', from: 'me', sentAt: '2026-08-10T10:00:00Z', body: 'hi', kind: 'message',
+    } satisfies Message);
+    window.dispatchEvent(new CustomEvent('tideline:outbox-enqueued'));
+
+    // The refresh tick is 8s away; this has to arrive well before that.
+    await flushUntil(
+      () => texts.map((t) => JSON.parse(t)).some(
+        (m) => m.type === 'have' && m.collection === 'messages' && m.ids.includes('urgent'),
+      ),
+      600, // instant push is debounced ~300ms; poll past that, not the 8s tick
+    );
+  });
+
+  it('survives being adopted before the data channel opens', async () => {
+    // The manual pairing flow adopts as soon as the SDP exchange completes,
+    // which is before ICE finishes. Gossiping then used to throw and tear the
+    // connection down — so every reconnection with a trusted peer killed
+    // itself, and only on devices that had data to advertise.
+    await db.messages.put({
+      id: 'local1', from: 'me', sentAt: '2026-08-14T10:00:00Z', body: 'hi', kind: 'message',
+    } satisfies Message);
+
+    const { hello } = await makeHello('mem-remote');
+    await db.peers.put({
+      fingerprint: hello.fingerprint, publicKeyB64: hello.publicKey, memberId: hello.memberId,
+      displayName: 'Remote', pairedAt: 'now', lastSeenAt: null,
+    });
+
+    const manager = new PeerManager();
+    const [local, partner] = pairMockPeers();
+    local.open = false;
+    partner.open = false;
+    const texts: string[] = [];
+    partner.setEvents({ onText: (t) => { texts.push(t); } });
+
+    await manager.adopt(local, hello, 'Remote');
+    await tick(); await tick();
+
+    // Still connected, and nothing was advertised into a closed channel.
+    expect(manager.summarize()).toHaveLength(1);
+    expect(manager.summarize()[0].state).not.toBe('closed');
+    expect(texts).toHaveLength(0);
+
+    // Once ICE completes, the backlog goes out.
+    local.openNow();
+    await flushUntil(() =>
+      texts.map((t) => JSON.parse(t)).some(
+        (m) => m.type === 'have' && m.collection === 'messages' && m.ids.includes('local1'),
+      ),
+    );
+  });
+
+  it('relays records from one peer to another (multi-hop)', async () => {
+    // Two peers on one device: what happens when a parent phone sits between
+    // two kids' phones that never meet each other directly.
+    const first = await makeHello('mem-first');
+    const second = await makeHello('mem-second');
+    for (const h of [first, second]) {
+      await db.peers.put({
+        fingerprint: h.hello.fingerprint, publicKeyB64: h.hello.publicKey,
+        memberId: h.hello.memberId, displayName: 'Peer', pairedAt: 'now', lastSeenAt: null,
+      });
+    }
+    const manager = new PeerManager();
+    const [localA, partnerA] = pairMockPeers();
+    const [localB, partnerB] = pairMockPeers();
+    await manager.adopt(localA, first.hello, 'First');
+    await manager.adopt(localB, second.hello, 'Second');
+
+    const bTexts: string[] = [];
+    partnerB.setEvents({ onText: (t) => { bTexts.push(t); } });
+
+    const relayed: Message = {
+      id: 'relayMe', from: 'mem-first', sentAt: '2026-08-10T09:00:00Z', body: 'pass it on', kind: 'message',
+    };
+    partnerA.sendText(JSON.stringify({ type: 'data', collection: 'messages', records: [relayed] }));
+
+    await flushUntil(
+      () => bTexts.map((t) => JSON.parse(t)).some(
+        (m) => m.type === 'have' && m.collection === 'messages' && m.ids.includes('relayMe'),
+      ),
+      600, // instant push is debounced ~300ms; poll past that, not the 8s tick
+    );
   });
 });

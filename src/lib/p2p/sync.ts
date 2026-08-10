@@ -23,6 +23,7 @@ import type {
   Message,
   Photo,
   PointEvent,
+  Reaction,
 } from '../../types';
 import { db } from '../db';
 import { enqueue } from '../sync';
@@ -34,6 +35,7 @@ import {
   photoBinaryPath,
   photoSidecarPath,
   pointEventPath,
+  reactionPath,
 } from '../paths';
 import type {
   Collection,
@@ -49,6 +51,7 @@ export async function collectHave(collection: Collection): Promise<string[]> {
     case 'pointEvents': return (await db.pointEvents.toArray()).map((r) => r.id);
     case 'completions': return (await db.completions.toArray()).map((r) => r.id);
     case 'habits':      return (await db.habits.toArray()).map((r) => r.id);
+    case 'reactions':   return (await db.reactions.toArray()).map((r) => r.id);
   }
 }
 
@@ -65,6 +68,7 @@ export async function fetchRecords(
     case 'pointEvents': return (await db.pointEvents.bulkGet(ids)).filter(nonNull);
     case 'completions': return (await db.completions.bulkGet(ids)).filter(nonNull);
     case 'habits':      return (await db.habits.bulkGet(ids)).filter(nonNull);
+    case 'reactions':   return (await db.reactions.bulkGet(ids)).filter(nonNull);
   }
 }
 
@@ -152,6 +156,17 @@ export async function absorbData(
       }
       break;
     }
+    case 'reactions': {
+      const typed = records as Reaction[];
+      const existing = new Set((await db.reactions.bulkGet(typed.map((r) => r.id))).filter(nonNull).map((r) => r.id));
+      for (const r of typed) {
+        if (existing.has(r.id)) continue;
+        await db.reactions.put(r);
+        await enqueueP2pWrite('reactions', r);
+        newIds.push(r.id);
+      }
+      break;
+    }
   }
   return { newIds, needPhotoBinary };
 }
@@ -179,6 +194,10 @@ async function enqueueP2pWrite(collection: Collection, record: CollectionRecord)
     case 'habits':
       path = habitPath(record as HabitCheckIn);
       commit = 'p2p: habit';
+      break;
+    case 'reactions':
+      path = reactionPath(record as Reaction);
+      commit = 'p2p: reaction';
       break;
   }
   // Use record.id as the outbox key so a forwarded write doesn't collide
@@ -228,12 +247,13 @@ export async function absorbPhotoBinary(
 
 /** All collections plus their HAVE sets — convenience for the manager. */
 export async function collectAllHaves(): Promise<Record<Collection, string[]>> {
-  const [messages, photos, pointEvents, completions, habits] = await Promise.all([
+  const [messages, photos, pointEvents, completions, habits, reactions] = await Promise.all([
     collectHave('messages'),
     collectHave('photos'),
     collectHave('pointEvents'),
     collectHave('completions'),
     collectHave('habits'),
+    collectHave('reactions'),
   ]);
-  return { messages, photos, pointEvents, completions, habits };
+  return { messages, photos, pointEvents, completions, habits, reactions };
 }

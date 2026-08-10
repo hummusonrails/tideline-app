@@ -7,7 +7,7 @@ interface SessionState {
   identity: MemberId | null;
   /** Decrypted access token for the private data backend. Persisted in localStorage. */
   pat: string | null;
-  /** When the user last re-entered their passphrase. We re-prompt every 7 days. */
+  /** When the user last re-entered their passphrase. See {@link UNLOCK_TTL_MS}. */
   lastUnlockAt: number | null;
   /** Backend coordinates — only known after a successful passphrase unlock. */
   dataOwner: string | null;
@@ -20,7 +20,16 @@ interface SessionState {
   panic: () => void;
 }
 
-const UNLOCK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How long an unlock lasts before we re-prompt for the passphrase.
+ *
+ * Deliberately longer than any single trip. A shorter window sounds safer but
+ * isn't: it comes due while people are somewhere with no connectivity, and a
+ * re-unlock at that moment is the one operation nobody can troubleshoot. The
+ * real backstop is the PAT's own expiry, which is set per-trip at mint time,
+ * plus the panic wipe for a lost phone.
+ */
+const UNLOCK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const useSession = create<SessionState>()(
   persist(
@@ -42,7 +51,9 @@ export const useSession = create<SessionState>()(
         indexedDB.databases?.().then((dbs) =>
           dbs.forEach((db) => db.name && indexedDB.deleteDatabase(db.name)),
         );
-        location.replace('/');
+        // BASE_URL, not '/': on a project Pages site the app lives under a
+        // subpath, and '/' would land on the domain root — outside the app.
+        location.replace(import.meta.env.BASE_URL);
       },
     }),
     {

@@ -14,7 +14,9 @@ import { uid } from '../lib/uuid';
 import { textToBase64 } from '../lib/github';
 import { compressAvatar, blobToBase64 } from '../lib/compress';
 import { disablePush, enablePush, getPushStatus, type PushStatus } from '../lib/push';
+import { DEFAULT_CONFIG } from '../lib/points';
 import { LogOut, ShieldAlert, Camera, Info, Smartphone, Bell, BellOff } from 'lucide-react';
+import type { PointsConfig } from '../types';
 
 export function Profile() {
   const session = useSession();
@@ -126,7 +128,7 @@ export function Profile() {
 
       {amParent && (
         <>
-          <div className="text-xs uppercase tracking-wider text-ink-400 px-1">Parent: award bonus points</div>
+          <div className="text-xs uppercase tracking-wider text-ink-600 px-1">Parent: award bonus points</div>
           {others.map((p) => (
             <BonusRow key={p.id} target={p.id} name={p.displayName} from={myId} />
           ))}
@@ -259,6 +261,10 @@ function BonusRow({ target, name, from }: { target: string; name: string; from: 
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const configRow = useLiveQuery(() => db.pointsConfig.get('config'), []);
+  const bonusMax =
+    (configRow?.value as PointsConfig | undefined)?.caps?.parentBonusMax
+    ?? DEFAULT_CONFIG.caps.parentBonusMax;
 
   async function award() {
     if (!note.trim()) return;
@@ -289,10 +295,14 @@ function BonusRow({ target, name, from }: { target: string; name: string; from: 
         <input
           type="range"
           min={1}
-          max={100}
-          value={amount}
+          // From config, not hardcoded — the trip data owns this number, and a
+          // slider that lets a parent award past the configured ceiling makes
+          // the cap meaningless.
+          max={bonusMax}
+          value={Math.min(amount, bonusMax)}
           onChange={(e) => setAmount(Number(e.target.value))}
           className="flex-1 accent-ink-900"
+          aria-label={`Bonus points for ${name}`}
         />
         <div className="tabular w-12 text-right font-semibold">+{amount}</div>
       </div>

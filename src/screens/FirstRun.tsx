@@ -17,7 +17,7 @@ function SyncDebug() {
   const places = useLiveQuery(() => db.places.count()) ?? 0;
   const p = (phase?.value as { phase?: string } | undefined)?.phase ?? '(no tick yet)';
   return (
-    <div className="mt-3 text-[10px] text-ink-400 tabular leading-relaxed">
+    <div className="mt-3 text-[10px] text-ink-600 tabular leading-relaxed">
       <div>online: {String(navigator.onLine)} · phase: {p}</div>
       <div>profiles: {profiles} · places: {places}</div>
     </div>
@@ -36,6 +36,7 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
   const [habit, setHabit] = useState('');
   const [saving, setSaving] = useState(false);
   const [slow, setSlow] = useState(false);
+  const [debugTaps, setDebugTaps] = useState(0);
 
   // Only surface a "taking a while" hint after a generous window, since the
   // first sync can take time on a phone. A real error (syncError) shows
@@ -80,11 +81,20 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
     return (
       <Overlay>
         <GlassCard className="text-center text-ink-600">
-          <div className="mb-1">Getting things ready…</div>
+          {/* Five taps reveals the sync diagnostics. They're genuinely useful
+              when something is stuck, but showing raw phase strings to a kid
+              waiting for the app to open just looks broken. */}
+          <button
+            type="button"
+            onClick={() => setDebugTaps((n) => n + 1)}
+            className="mb-1 w-full"
+          >
+            Getting things ready…
+          </button>
           {slow && (
-            <div className="text-xs text-ink-400">First sync can take a moment on a new device.</div>
+            <div className="text-xs text-ink-600">First sync can take a moment on a new device.</div>
           )}
-          <SyncDebug />
+          {debugTaps >= 5 && <SyncDebug />}
         </GlassCard>
       </Overlay>
     );
@@ -133,7 +143,7 @@ export function FirstRun({ onDone }: { onDone: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="text-xs uppercase tracking-wider text-ink-400 mb-1">
+            <div className="text-xs uppercase tracking-wider text-ink-600 mb-1">
               {profile.habit?.emoji ?? '🔥'} Your daily habit
             </div>
             <input

@@ -14,6 +14,7 @@ import type {
   Message,
   Photo,
   PointEvent,
+  Reaction,
 } from '../../types';
 
 beforeEach(async () => {
@@ -24,6 +25,7 @@ beforeEach(async () => {
     db.pointEvents.clear(),
     db.completions.clear(),
     db.habits.clear(),
+    db.reactions.clear(),
     db.outbox.clear(),
   ]);
 });
@@ -46,6 +48,10 @@ const point = (id: string, by = 'm-a'): PointEvent => ({
 
 const completion = (id: string, by = 'm-a'): ChallengeCompletion => ({
   id, challengeId: 'c-1', by, completedAt: '2026-05-31T10:00:00.000Z', awardedPoints: 10,
+});
+
+const reaction = (id: string, by = 'm-b'): Reaction => ({
+  id, messageId: 'm1', by, emoji: '❤️', at: '2026-05-31T10:00:00.000Z',
 });
 
 const habit = (id: string, by = 'm-a'): HabitCheckIn => ({
@@ -127,6 +133,7 @@ describe('p2p sync bridge', () => {
     await absorbData('pointEvents', [point('px')]);
     await absorbData('completions', [completion('cx')]);
     await absorbData('habits', [habit('hx')]);
+    await absorbData('reactions', [reaction('rx')]);
     const have = await collectAllHaves();
     expect(have).toEqual({
       messages: ['mx'],
@@ -134,7 +141,35 @@ describe('p2p sync bridge', () => {
       pointEvents: ['px'],
       completions: ['cx'],
       habits: ['hx'],
+      reactions: ['rx'],
     });
-    expect(await db.outbox.count()).toBe(4);
+    expect(await db.outbox.count()).toBe(5);
+  });
+
+  it('absorbs reactions and queues them at the canonical path', async () => {
+    await db.outbox.clear();
+    const result = await absorbData('reactions', [reaction('r1')]);
+    expect(result.newIds).toEqual(['r1']);
+    expect(await db.reactions.get('r1')).toMatchObject({ messageId: 'm1', emoji: '❤️' });
+    const outbox = await db.outbox.toArray();
+    expect(outbox).toHaveLength(1);
+    expect((outbox[0].op as { path: string }).path).toMatch(
+      /^reactions\/\d{4}-\d{2}-\d{2}\/.*r1\.json$/,
+    );
+  });
+
+  it('ignores a reaction id it already has', async () => {
+    await absorbData('reactions', [reaction('r2')]);
+    await db.outbox.clear();
+    const again = await absorbData('reactions', [reaction('r2')]);
+    expect(again.newIds).toEqual([]);
+    expect(await db.outbox.count()).toBe(0);
+  });
+
+  it('absorbs a retraction as its own record', async () => {
+    await absorbData('reactions', [reaction('r3')]);
+    await absorbData('reactions', [{ ...reaction('r4'), emoji: null }]);
+    expect(await db.reactions.get('r4')).toMatchObject({ emoji: null });
+    expect((await collectHave('reactions')).sort()).toEqual(['r3', 'r4']);
   });
 });

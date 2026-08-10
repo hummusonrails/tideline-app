@@ -43,13 +43,36 @@ export function nextTier(points: number, cfg: PointsConfig): { tier: Tier; remai
  * Streak in consecutive days ending today (inclusive) for the given member.
  * Resets on miss. Uses local YYYY-MM-DD per check-in record.
  */
-export function streakLength(checkIns: HabitCheckIn[], member: MemberId, today: string): number {
+/**
+ * How many days in a row this member has checked in, ending today.
+ *
+ * `freeDates` are days the chain may skip without breaking. Shabbat is the
+ * reason this exists: a family that observes it correctly won't touch a phone
+ * on Saturday, and a streak that punishes them for that is the app taking a
+ * side it has no business taking. Free days don't *add* to the streak either —
+ * they're neutral, not credit.
+ */
+export function streakLength(
+  checkIns: HabitCheckIn[],
+  member: MemberId,
+  today: string,
+  freeDates?: ReadonlySet<string>,
+): number {
   const dates = new Set(checkIns.filter((c) => c.by === member).map((c) => c.date));
+  const isFree = (d: string) => freeDates?.has(d) ?? false;
+
   let streak = 0;
   let cursor = today;
-  while (dates.has(cursor)) {
-    streak += 1;
+  // A free day today shouldn't read as a broken streak, so walk back past any
+  // trailing free days before deciding whether the chain has ended.
+  while (isFree(cursor) && !dates.has(cursor)) cursor = addDays(cursor, -1);
+
+  while (dates.has(cursor) || isFree(cursor)) {
+    if (dates.has(cursor)) streak += 1;
     cursor = addDays(cursor, -1);
+    // Don't let a run of free days extend forever into the past looking for
+    // a check-in that isn't there.
+    if (!dates.has(cursor) && !isFree(cursor)) break;
   }
   return streak;
 }

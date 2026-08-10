@@ -48,6 +48,8 @@ export interface PeerLike {
   sendText(text: string): void;
   sendBinary(bytes: Uint8Array): Promise<void>;
   close(): void;
+  /** Is the data channel actually ready to carry a frame right now? */
+  isOpen(): boolean;
 }
 
 const DEFAULT_BUFFER_HIGH = 1 * 1024 * 1024;
@@ -82,6 +84,8 @@ export class Peer {
 
   get state(): PeerState { return this.state_; }
   get bufferedAmount(): number { return this.dc?.bufferedAmount ?? 0; }
+
+  isOpen(): boolean { return this.dc?.readyState === 'open'; }
 
   /** Create the offer SDP, with all ICE candidates baked in. */
   async createOffer(): Promise<string> {

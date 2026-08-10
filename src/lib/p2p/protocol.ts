@@ -31,6 +31,7 @@ import type {
   Message,
   Photo,
   PointEvent,
+  Reaction,
 } from '../../types';
 
 export const PROTOCOL_VERSION = 1;
@@ -40,10 +41,11 @@ export type Collection =
   | 'photos'
   | 'pointEvents'
   | 'completions'
-  | 'habits';
+  | 'habits'
+  | 'reactions';
 
 export const COLLECTIONS: readonly Collection[] = [
-  'messages', 'photos', 'pointEvents', 'completions', 'habits',
+  'messages', 'photos', 'pointEvents', 'completions', 'habits', 'reactions',
 ] as const;
 
 export type CollectionRecord =
@@ -51,7 +53,8 @@ export type CollectionRecord =
   | Photo
   | PointEvent
   | ChallengeCompletion
-  | HabitCheckIn;
+  | HabitCheckIn
+  | Reaction;
 
 export interface Hello {
   type: 'hello';
@@ -90,15 +93,36 @@ export interface Data {
 
 export interface Ping {
   type: 'ping';
+  /** Sender's clock when the ping went out; echoed back untouched. */
   at: number;
 }
 
 export interface Pong {
   type: 'pong';
+  /** Echo of the ping's `at`, so the sender can compute round-trip time. */
   at: number;
+  /**
+   * Responder's clock when it answered. Optional: a peer running a build from
+   * before this field existed still produces a valid pong, we just can't
+   * estimate its clock offset.
+   */
+  now?: number;
 }
 
-export type ControlMessage = Hello | HelloAck | Have | Want | Data | Ping | Pong;
+/**
+ * "I'm looking at these messages right now."
+ *
+ * Deliberately never persisted on either side. Read receipts as records would
+ * mean a commit to the trip history every time someone opens the chat, for
+ * information nobody will ever want to read back. It lives in memory for the
+ * length of the connection and then it's gone.
+ */
+export interface Seen {
+  type: 'seen';
+  ids: string[];
+}
+
+export type ControlMessage = Hello | HelloAck | Have | Want | Data | Ping | Pong | Seen;
 
 export interface BinaryHeader {
   /** Always 'photo' for now — leaves room for other binary kinds later. */
@@ -151,6 +175,9 @@ export function decodeControl(text: string): ControlMessage | null {
     case 'pong':
       if (typeof parsed.at === 'number') return parsed as unknown as Ping | Pong;
       return null;
+    case 'seen':
+      if (Array.isArray(parsed.ids)) return parsed as unknown as Seen;
+      return null;
     default:
       return null;
   }
@@ -158,6 +185,19 @@ export function decodeControl(text: string): ControlMessage | null {
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
+}
+
+/**
+ * Is this a collection this build knows how to handle?
+ *
+ * Needed because peers may run different builds: a newer one can advertise a
+ * collection we've never heard of. Without this check the unknown name flows
+ * into `collectHave`, whose switch has no matching case, returns `undefined`,
+ * and `new Set(undefined)` throws — taking down the whole connection over what
+ * should be a skipped message.
+ */
+export function isCollection(v: unknown): v is Collection {
+  return typeof v === 'string' && (COLLECTIONS as readonly string[]).includes(v);
 }
 
 // --- binary framing ----------------------------------------------------

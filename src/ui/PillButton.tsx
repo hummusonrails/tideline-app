@@ -15,7 +15,10 @@ export function PillButton({
   ...rest
 }: PillButtonProps) {
   const base =
-    'inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition active:scale-[0.97]';
+    'inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition active:scale-[0.97] ' +
+    // `disabled` already worked functionally via the prop spread, but looked
+    // identical to enabled — so a dead button read as an unresponsive one.
+    'disabled:opacity-50 disabled:active:scale-100';
   const styles = active
     ? 'bg-white text-ink-900 shadow-[var(--shadow-pill)]'
     : variant === 'solid'
