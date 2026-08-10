@@ -12,7 +12,7 @@
  * A `VITE_VAPID_PUBLIC_KEY` env var overrides this at build time if you'd
  * rather not keep it in source.
  */
-const BAKED_IN = '';
+const BAKED_IN = 'BI3cJiPWBsAORefc52fITYmZQGXN2BWudz-vJfgPP0XQefDjctuIqJqJCU5RfDvqm0OsAOwXvI4N8T-Wr1L9LWc';
 
 export const VAPID_PUBLIC_KEY: string =
   (import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined)?.trim() || BAKED_IN;
