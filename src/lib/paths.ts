@@ -46,6 +46,19 @@ export function habitPath(h: Pick<HabitCheckIn, 'id' | 'by' | 'at'>): string {
 }
 
 /**
+ * Inverse of the builders above: recovers a record's id from its stored path.
+ *
+ * `eventFilename` writes `HH-MM-SS-<author>-<id>.<ext>`, and neither member
+ * ids (6 hex chars) nor uids (hex) contain a dash, so the id is the last
+ * dash-separated segment of the stem. Paths that aren't event files (e.g.
+ * `avatars/<memberId>.jpg`) fall through to the whole stem.
+ */
+export function eventIdFromPath(path: string): string {
+  const stem = (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+  return stem.split('-').pop() || stem;
+}
+
+/**
  * Web Push subscription for one device. Keyed by the p2p device fingerprint
  * so re-subscribing on the same device overwrites in place instead of
  * accumulating dead endpoints.

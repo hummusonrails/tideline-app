@@ -1,4 +1,5 @@
 import { db } from './db';
+import { eventIdFromPath } from './paths';
 import {
   type GHCtx,
   getBranch,
@@ -158,7 +159,9 @@ async function pullAll(ctx: GHCtx): Promise<void> {
     const rootTreeSha = branch.commit.commit.tree.sha;
     // Key is versioned: bumping it invalidates any etag saved by an older
     // build (e.g. one that could leave a poisoned "up-to-date" marker).
-    const ETAG_KEY = 'root-v2';
+    // v3: the photo-blob key repair (db.ts v5) needs a full tree walk, and a
+    // saved v2 etag would 304 straight past it.
+    const ETAG_KEY = 'root-v3';
     const prior = await db.treeEtags.get(ETAG_KEY);
     await setPhase('get-tree');
     const out = await getTreeRecursive(ctx, rootTreeSha, prior?.etag ?? undefined);
@@ -359,13 +362,15 @@ function routeFor(path: string): Route | null {
       upsert: async (p) => { await db.photos.put(p as Photo); },
     };
   }
-  // Photo bytes: photos/<YYYY-MM-DD>/<file>.jpg
+  // Photo bytes: photos/<YYYY-MM-DD>/HH-MM-SS-<author>-<id>.jpg
   if (path.startsWith('photos/') && /\.(jpe?g)$/i.test(path)) {
     return {
       kind: 'photo-blob',
       upsert: async (blob, p) => {
-        const id = p.split('/').pop()!.replace(/\.jpe?g$/i, '');
-        await db.photoBlobs.put({ photoId: id, bytes: blob });
+        // Must be the bare record id — the gallery looks blobs up by
+        // `photo.id`, so keying these by the full filename stem silently
+        // hides everyone else's photos.
+        await db.photoBlobs.put({ photoId: eventIdFromPath(p), bytes: blob });
       },
     };
   }

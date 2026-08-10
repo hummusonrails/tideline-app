@@ -27,6 +27,7 @@ export function Photos() {
   const [filter, setFilter] = useState<string | 'all'>('all');
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Photo | null>(null);
 
   const visible = filter === 'all' ? photos : photos.filter((p) => p.from === filter);
@@ -35,8 +36,15 @@ export function Photos() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setError(null);
     try {
       await uploadPhoto(file, id);
+    } catch (err) {
+      // Never swallow this: a failed upload used to look identical to nothing
+      // happening at all, which is indistinguishable from the picker not
+      // working. Show what actually broke.
+      console.error('photo upload failed', err);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
@@ -55,6 +63,24 @@ export function Photos() {
           </PillButton>
         ))}
       </div>
+
+      {uploading && (
+        <GlassCard className="text-ink-600 text-sm text-center">Adding your photo…</GlassCard>
+      )}
+
+      {error && (
+        <GlassCard className="!border-coral/40">
+          <div className="text-coral text-sm font-medium">Couldn&rsquo;t add that photo</div>
+          <div className="text-ink-600 text-sm mt-1 break-words">{error}</div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-ocean text-sm mt-2"
+          >
+            Dismiss
+          </button>
+        </GlassCard>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         {visible.map((photo) => (

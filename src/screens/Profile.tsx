@@ -29,11 +29,13 @@ export function Profile() {
   const amParent = myProfile?.role === 'parent';
   const avatarInput = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
 
   async function onAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !myProfile) return;
     setSavingAvatar(true);
+    setAvatarError(null);
     try {
       const compressed = await compressAvatar(file);
       // Store locally so it shows immediately.
@@ -63,6 +65,9 @@ export function Profile() {
           commitMessage: 'update profile',
         },
       });
+    } catch (err) {
+      console.error('avatar upload failed', err);
+      setAvatarError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingAvatar(false);
       if (avatarInput.current) avatarInput.current.value = '';
@@ -111,6 +116,12 @@ export function Profile() {
           className="hidden"
           onChange={onAvatarFile}
         />
+        {avatarError && (
+          <div className="mt-3 text-center">
+            <div className="text-coral text-sm font-medium">Couldn&rsquo;t save that photo</div>
+            <div className="text-ink-600 text-sm mt-1 break-words">{avatarError}</div>
+          </div>
+        )}
       </GlassCard>
 
       {amParent && (

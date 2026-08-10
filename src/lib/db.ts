@@ -110,6 +110,30 @@ class TidelineDB extends Dexie {
     this.version(4).stores({
       peers: '&fingerprint, memberId',
     });
+    // v5 — repair photos synced before the blob-key fix.
+    //
+    // The sync engine used to key incoming photo bytes by the whole filename
+    // stem ("21-04-33-fb99f8-a1b2c3") instead of the record id ("a1b2c3"), so
+    // every photo pulled from the backend was stored under a key the gallery
+    // never reads: other people's photos showed as blank tiles.
+    //
+    // Correcting the parser isn't enough on its own — `pullFile` skips any
+    // path whose blob sha it has already recorded, so those photos would
+    // never be re-fetched. Dropping the markers here (plus the bumped tree
+    // etag key in sync.ts) makes the next sync pull them again properly.
+    this.version(5).upgrade(async (tx) => {
+      const blobs = tx.table('photoBlobs');
+      const badKeys = (await blobs.toArray())
+        .map((row: { photoId: string }) => row.photoId)
+        .filter((photoId: string) => photoId.includes('-'));
+      if (badKeys.length > 0) await blobs.bulkDelete(badKeys);
+
+      const meta = tx.table('meta');
+      const staleMarkers = (await meta.toArray())
+        .map((row: { key: string }) => row.key)
+        .filter((key: string) => /^blob:photos\/.*\.jpe?g$/i.test(key));
+      if (staleMarkers.length > 0) await meta.bulkDelete(staleMarkers);
+    });
   }
 }
 
