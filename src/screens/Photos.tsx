@@ -77,7 +77,9 @@ export function Photos() {
       >
         <Plus />
       </button>
-      <input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFile} />
+      {/* No `capture`: on iOS it forces the camera and hides the Photo
+          Library, so photos taken before opening the app can't be added. */}
+      <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={onFile} />
 
       {open && (
         <PhotoLightbox

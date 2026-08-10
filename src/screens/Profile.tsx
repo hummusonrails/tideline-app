@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
@@ -13,7 +13,8 @@ import { awardPoints } from '../lib/award';
 import { uid } from '../lib/uuid';
 import { textToBase64 } from '../lib/github';
 import { compressAvatar, blobToBase64 } from '../lib/compress';
-import { LogOut, ShieldAlert, Camera, Info, Smartphone } from 'lucide-react';
+import { disablePush, enablePush, getPushStatus, type PushStatus } from '../lib/push';
+import { LogOut, ShieldAlert, Camera, Info, Smartphone, Bell, BellOff } from 'lucide-react';
 
 export function Profile() {
   const session = useSession();
@@ -121,6 +122,8 @@ export function Profile() {
         </>
       )}
 
+      <NotificationsCard myId={myId} />
+
       <GlassCard className="!p-3">
         <PillButton
           onClick={() => session.signOut()}
@@ -160,6 +163,83 @@ export function Profile() {
         </a>
       </GlassCard>
     </Page>
+  );
+}
+
+/**
+ * Notification opt-in. Every state here is reachable on a family iPhone, so
+ * each one gets copy that says what to do next rather than just what's wrong.
+ */
+function NotificationsCard({ myId }: { myId: string }) {
+  const [status, setStatus] = useState<PushStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void getPushStatus().then((s) => {
+      if (alive) setStatus(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      setStatus(status === 'on' ? await disablePush(myId) : await enablePush(myId));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (status === null) return null;
+  // Nothing actionable and nothing the family can fix — don't show a dead card.
+  if (status === 'unconfigured' || status === 'unsupported') return null;
+
+  return (
+    <GlassCard className="!p-4 space-y-2">
+      <div className="flex items-center gap-2 font-medium text-ink-800">
+        {status === 'on' ? <Bell size={15} /> : <BellOff size={15} />} Notifications
+      </div>
+
+      {status === 'needs-install' && (
+        <div className="text-sm text-ink-600">
+          To get alerts, add Tideline to your Home Screen first: tap Share, then
+          &ldquo;Add to Home Screen&rdquo;, and open it from there. iPhones only allow
+          notifications for apps added this way.
+        </div>
+      )}
+
+      {status === 'denied' && (
+        <div className="text-sm text-ink-600">
+          Notifications are blocked for Tideline. Turn them back on in iPhone
+          Settings → Notifications → Tideline, then come back here.
+        </div>
+      )}
+
+      {status === 'prompt' && (
+        <>
+          <div className="text-sm text-ink-600">
+            Get a buzz for new chat messages and bonus points, even when the app is closed.
+          </div>
+          <PillButton onClick={toggle} disabled={busy} className="!w-full justify-center">
+            {busy ? 'Turning on…' : 'Turn on notifications'}
+          </PillButton>
+        </>
+      )}
+
+      {status === 'on' && (
+        <>
+          <div className="text-sm text-ink-600">
+            On for this device. You&rsquo;ll hear about new messages and bonus points.
+          </div>
+          <PillButton onClick={toggle} disabled={busy} className="!w-full justify-center">
+            {busy ? 'Turning off…' : 'Turn off on this device'}
+          </PillButton>
+        </>
+      )}
+    </GlassCard>
   );
 }
 

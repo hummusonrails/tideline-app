@@ -42,6 +42,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Adds `push` / `notificationclick` handlers to the generated service
+        // worker without switching to injectManifest — precaching, navigation
+        // fallback and the api.github.com rule below stay exactly as they are.
+        // Resolved relative to the SW, i.e. `${base}push-sw.js`.
+        importScripts: ['push-sw.js'],
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,json}'],
         runtimeCaching: [
           {

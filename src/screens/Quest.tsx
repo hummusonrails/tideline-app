@@ -273,8 +273,20 @@ function PhotoClaim({ challenge, myId, onDone }: { challenge: Challenge; myId: M
     try {
       const result = await compressForPost(file);
 
-      // Excursion-locked: enforce EXIF time window when EXIF is present.
-      if (challenge.excursionStartISO && challenge.excursionEndISO && result.exifPresent) {
+      // Excursion-locked: the photo must carry an EXIF capture time inside
+      // the window. EXIF-less images (screenshots, anything forwarded through
+      // a messaging app) are rejected rather than waved through — otherwise
+      // stripping metadata is the easiest way to beat the window check.
+      if (challenge.excursionStartISO && challenge.excursionEndISO) {
+        if (!result.exifPresent) {
+          setError(
+            "That image has no capture time, so we can't tell when it was taken. " +
+              'Use a photo straight from the camera roll — screenshots and forwarded ' +
+              'images lose their timestamp.',
+          );
+          setBusy(false);
+          return;
+        }
         const t = Date.parse(result.takenAt);
         const start = Date.parse(challenge.excursionStartISO);
         const end = Date.parse(challenge.excursionEndISO);
@@ -301,7 +313,8 @@ function PhotoClaim({ challenge, myId, onDone }: { challenge: Challenge; myId: M
     <div>
       {challenge.excursionStartISO && (
         <div className="text-xs text-ink-500 mb-3">
-          Photo must be taken during the activity (EXIF time is checked when available).
+          Photo must be taken during the activity. We check the photo's capture
+          time, so screenshots and forwarded images won't count.
         </div>
       )}
       {error && <div className="text-coral text-sm mb-3">{error}</div>}
@@ -313,7 +326,10 @@ function PhotoClaim({ challenge, myId, onDone }: { challenge: Challenge; myId: M
       >
         <Camera size={16} /> {busy ? 'Uploading…' : `Add proof photo · +${challenge.points}`}
       </button>
-      <input ref={fileInput} type="file" accept="image/*" capture="environment" className="hidden" onChange={onFile} />
+      {/* No `capture` attribute: on iOS it forces the camera and hides the
+          Photo Library option. Proof integrity comes from the EXIF window
+          check above, not from forcing a live shot. */}
+      <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={onFile} />
     </div>
   );
 }

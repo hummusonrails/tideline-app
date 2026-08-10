@@ -8,6 +8,7 @@
 import type {
   ChallengeCompletion,
   HabitCheckIn,
+  MemberId,
   Message,
   Photo,
   PointEvent,
@@ -42,4 +43,16 @@ export function completionPath(c: Pick<ChallengeCompletion, 'id' | 'by' | 'compl
 export function habitPath(h: Pick<HabitCheckIn, 'id' | 'by' | 'at'>): string {
   const at = new Date(h.at);
   return `habits/${dateFolder(at)}/${eventFilename(at, h.by, h.id, '.json')}`;
+}
+
+/**
+ * Web Push subscription for one device. Keyed by the p2p device fingerprint
+ * so re-subscribing on the same device overwrites in place instead of
+ * accumulating dead endpoints.
+ *
+ * Read only by the notifier workflow in the data repo — `routeFor` in the
+ * sync engine has no route for this prefix, so clients skip these files.
+ */
+export function pushSubPath(memberId: MemberId, deviceFingerprint: string): string {
+  return `push-subs/${memberId}/${deviceFingerprint}.json`;
 }

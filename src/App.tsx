@@ -15,6 +15,7 @@ import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
 import { useSession, isUnlockFresh } from './state/session';
 import { startSyncLoop } from './lib/sync';
+import { refreshSubscription } from './lib/push';
 import { getPeerManager } from './lib/p2p/manager';
 import { useSyncError, retrySync } from './lib/syncStatus';
 
@@ -41,6 +42,9 @@ export function App() {
       token: session.pat,
       identity: session.identity,
     });
+    // Browsers rotate push endpoints without warning; re-publish ours if it
+    // moved, otherwise the notifier keeps pushing into a dead endpoint.
+    void refreshSubscription(session.identity);
     return stop;
   }, [session.identity, session.pat, session.dataOwner, session.dataRepo]);
 
