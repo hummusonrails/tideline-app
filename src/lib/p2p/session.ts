@@ -99,7 +99,13 @@ async function buildPayload(
   memberId: string,
   sdp: string,
   kind: 'offer' | 'answer',
+  preferV1 = false,
 ): Promise<HandshakePayload> {
+  // The one case where more QR frames is the better trade: if a peer rejected
+  // our reconstructed description, the fix is to stop reconstructing it.
+  if (preferV1) {
+    return { v: 1, sdp, hello: await signSdp(identity, memberId, sdp) };
+  }
   try {
     const c = compressSdp(sdp);
     // Only trust the compact form if it actually round-trips back to something
@@ -193,16 +199,27 @@ export class InitiatorSession {
   private identity: PeerIdentity;
   private memberId: string;
   private warm: () => Promise<MediaStream | null>;
+  private preferV1: boolean;
 
   constructor(opts: {
     identity: PeerIdentity;
     memberId: string;
     /** Seam for tests; defaults to the real camera warm-up. */
     warmCapture?: () => Promise<MediaStream | null>;
+    /**
+     * Send the SDP verbatim instead of the compact form.
+     *
+     * The compact codec rebuilds the description from a template, and a stack
+     * that rejects the reconstruction fails the whole pairing. This is the
+     * escape hatch the UI points at, so it has to genuinely differ from the
+     * default path — more QR frames, nothing reconstructed.
+     */
+    preferV1?: boolean;
   }) {
     this.identity = opts.identity;
     this.memberId = opts.memberId;
     this.warm = opts.warmCapture ?? warmCapturePermission;
+    this.preferV1 = opts.preferV1 ?? false;
     this.peer = new Peer();
   }
 
@@ -218,7 +235,7 @@ export class InitiatorSession {
     } finally {
       stopStream(stream);
     }
-    const payload = await buildPayload(this.identity, this.memberId, sdp, 'offer');
+    const payload = await buildPayload(this.identity, this.memberId, sdp, 'offer', this.preferV1);
     return encodeFrames(jsonBytes(payload));
   }
 

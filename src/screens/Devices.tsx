@@ -131,7 +131,9 @@ export function Devices() {
 
   async function startInitiator() {
     if (!identity || !myProfile) return;
-    const s = new InitiatorSession({ identity, memberId: myId });
+    // Verbatim SDP: this flow is what the F2F error state sends people to,
+    // so it must not repeat the reconstruction that may have just failed.
+    const s = new InitiatorSession({ identity, memberId: myId, preferV1: true });
     try {
       setMode({ name: 'initiator-show', frames: await s.beginFrames(), session: s });
     } catch (err) {

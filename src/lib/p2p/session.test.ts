@@ -175,6 +175,18 @@ describe('compact handshake payloads', () => {
     expect(accepted.remoteHello.fingerprint).toBe(bob.fingerprint);
   });
 
+  it('sends a verbatim SDP when preferV1 is set', async () => {
+    // This is the escape hatch the face-to-face error state points at, so it
+    // has to actually differ from the default path — otherwise a peer that
+    // rejected the reconstructed description just fails again.
+    const s = new InitiatorSession({
+      identity: alice, memberId: 'm-a', warmCapture: async () => null, preferV1: true,
+    });
+    const payload = decodeFrames(await s.beginFrames());
+    expect(payload.v).toBe(1);
+    expect(payload.sdp).toContain('a=ice-ufrag:offR');
+  });
+
   it('answers a legacy v1 offer in v1, so an older build can still pair', async () => {
     const helloV1 = await signV1(alice, 'm-a', OFFER_SDP);
     const v1Offer = encodeJson({ v: 1, sdp: OFFER_SDP, hello: helloV1 });

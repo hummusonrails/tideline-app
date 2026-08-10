@@ -196,8 +196,16 @@ export class Peer {
 
   private syncConnectionState(): void {
     const s = this.pc.connectionState;
-    if (s === 'failed') this.transition('failed');
-    else if (s === 'disconnected' || s === 'closed') {
+    if (s === 'failed') {
+      // A failed connection is a gone connection. Without notifying, the
+      // manager keeps the peer in its map — and since gossip never started,
+      // neither did the keepalive that would eventually reap it, so the UI
+      // shows "Syncing…" forever against a peer that will never arrive.
+      if (this.state_ !== 'failed' && this.state_ !== 'closed') {
+        this.transition('failed');
+        this.events.onClose?.();
+      }
+    } else if (s === 'disconnected' || s === 'closed') {
       if (this.state_ !== 'closed') {
         this.transition('closed');
         this.events.onClose?.();
