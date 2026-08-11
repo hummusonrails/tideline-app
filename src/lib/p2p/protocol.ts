@@ -122,7 +122,35 @@ export interface Seen {
   ids: string[];
 }
 
-export type ControlMessage = Hello | HelloAck | Have | Want | Data | Ping | Pong | Seen;
+/**
+ * Live game traffic (the kart duel). Transient by design, like {@link Seen}:
+ * nothing here is ever persisted or gossiped onward — race *results* ride the
+ * completions collection instead, exactly like hunts and moments do.
+ *
+ * The envelope is deliberately opaque at this layer. `k` discriminates the
+ * game's own message kinds and `p` is whatever that kind carries; both are
+ * validated by the game module (see lib/race/net.ts), not here. Keeping the
+ * protocol layer ignorant of game internals means new game kinds never touch
+ * this file — and a peer running an older build ignores the whole message
+ * (unknown `type` → decodeControl returns null), which is the mixed-build
+ * safety property everything in this file exists to preserve.
+ *
+ * `gv` versions the game protocol separately from PROTOCOL_VERSION. Bumping
+ * PROTOCOL_VERSION would gate the *handshake* and split the family's gossip
+ * mesh over a minigame; a game-only version lets two mismatched builds keep
+ * syncing photos while politely declining to race each other.
+ */
+export interface GameMsg {
+  type: 'game';
+  /** Game protocol version — see lib/race/net.ts. */
+  gv: number;
+  /** Game message kind ('invite', 'in', 'st', …). */
+  k: string;
+  /** Kind-specific payload; the game layer validates it. */
+  p?: unknown;
+}
+
+export type ControlMessage = Hello | HelloAck | Have | Want | Data | Ping | Pong | Seen | GameMsg;
 
 export interface BinaryHeader {
   /** Always 'photo' for now — leaves room for other binary kinds later. */
@@ -177,6 +205,14 @@ export function decodeControl(text: string): ControlMessage | null {
       return null;
     case 'seen':
       if (Array.isArray(parsed.ids)) return parsed as unknown as Seen;
+      return null;
+    case 'game':
+      // Only the envelope is checked here; payload validation belongs to the
+      // game layer so a malformed race message degrades to "ignored frame",
+      // never to a torn-down sync connection.
+      if (typeof parsed.gv === 'number' && typeof parsed.k === 'string') {
+        return parsed as unknown as GameMsg;
+      }
       return null;
     default:
       return null;

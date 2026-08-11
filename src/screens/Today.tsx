@@ -37,6 +37,7 @@ import {
 } from '../lib/moments';
 import { buildReminders } from '../lib/reminders';
 import { useEggAnchor } from '../lib/eggRuntime';
+import { getPeerManager } from '../lib/p2p/manager';
 import type { ItineraryItem, Place, HabitCheckIn, PointEvent, PointsConfig, Tier, Moment } from '../types';
 
 export function Today() {
@@ -108,6 +109,7 @@ export function Today() {
       <SeaBanner />
       <TierCelebration events={events} member={id} />
       <MomentCard myId={id} />
+      <DuelPrompt />
       <TripFinalePrompt today={today} endDate={tripMeta?.endDate} />
       <Reminders myId={id} today={today} onShabbat={onShabbat} onCheckIn={onCheckIn} />
       <RecapPrompt today={today} />
@@ -285,6 +287,44 @@ function TodayHunts({ myId }: { myId: string }) {
         })}
       </div>
     </section>
+  );
+}
+
+/**
+ * "Someone's here — race them" card. Only appears while a trusted phone is
+ * actually connected, because that's the entire prerequisite: the duel runs
+ * device-to-device over the same link the sync uses. Surfaced on Today so
+ * finding out the game exists doesn't require spelunking the Devices screen.
+ */
+function DuelPrompt() {
+  const navigate = useNavigate();
+  const [live, setLive] = useState<string | null>(null);
+  useEffect(
+    () =>
+      getPeerManager().subscribe((summaries) => {
+        const peer = summaries.find((s) => s.state === 'syncing' || s.state === 'idle');
+        setLive(peer ? peer.displayName || peer.memberId : null);
+      }),
+    [],
+  );
+  if (!live) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/race')}
+      className="w-full text-left active:scale-[0.99] transition"
+    >
+      <GlassCard className="flex items-center gap-3 !py-4 ring-2 ring-ocean/30">
+        <div className="text-2xl">🏁</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">Kart Duel</div>
+          <div className="text-xs text-ink-600 truncate">
+            {live} is connected — challenge them to a race
+          </div>
+        </div>
+        <ChevronRight size={16} className="text-ink-600 shrink-0" />
+      </GlassCard>
+    </button>
   );
 }
 

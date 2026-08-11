@@ -26,6 +26,7 @@ import {
   type Collection,
   type ControlMessage,
   type Data,
+  type GameMsg,
   type Have,
   type Want,
   type Pong,
@@ -113,9 +114,13 @@ interface ManagedPeer {
 
 export type ManagerListener = (summaries: PeerSummary[]) => void;
 
+/** Receives live game frames. `fingerprint` identifies which trusted peer sent it. */
+export type GameListener = (fingerprint: string, msg: GameMsg) => void;
+
 export class PeerManager {
   private peers = new Map<string, ManagedPeer>();
   private listeners = new Set<ManagerListener>();
+  private gameListeners = new Set<GameListener>();
   private enqueueDebounce: ReturnType<typeof setTimeout> | null = null;
   /**
    * Who's signed in on this device. Needed to tell our own messages apart from
@@ -395,10 +400,47 @@ export class PeerManager {
       // Replace rather than accumulate: "seen" means *currently* on screen,
       // and an empty list is how a peer says it has looked away.
       case 'seen':  mp.seenIds = new Set(msg.ids); break;
+      // Game frames go straight to whoever's racing. No manager state changes
+      // and no `notify()` churn: at ~35 frames/sec during a race, re-rendering
+      // every subscriber to PeerSummary would be pure waste.
+      case 'game':  this.dispatchGame(mp.remoteHello.fingerprint, msg); return;
       // hello / hello-ack are absorbed by the handshake — no-op here.
       default: break;
     }
     this.notify();
+  }
+
+  /**
+   * Send a live game frame to one trusted peer. Returns false when the frame
+   * couldn't go out (no such peer, channel not open) — the game treats that
+   * the same as silence and lets its own watchdog decide the race is over,
+   * rather than this layer inventing an error path for a transient message.
+   */
+  sendGame(fingerprint: string, msg: Omit<GameMsg, 'type'>): boolean {
+    const mp = this.peers.get(fingerprint);
+    if (!mp || !mp.trusted || mp.state === 'closed' || !mp.peer.isOpen()) return false;
+    this.sendControl(mp, { type: 'game', ...msg });
+    return true;
+  }
+
+  /**
+   * Subscribe to incoming game frames from all trusted peers.
+   *
+   * Frames are transient: nothing is buffered for late subscribers. A frame
+   * that arrives while no one is listening is dropped on purpose — that's why
+   * the race invite flow re-sends its invite rather than assuming delivery.
+   */
+  onGame(fn: GameListener): () => void {
+    this.gameListeners.add(fn);
+    return () => { this.gameListeners.delete(fn); };
+  }
+
+  private dispatchGame(fingerprint: string, msg: GameMsg): void {
+    for (const fn of this.gameListeners) {
+      // One listener throwing must not starve the others — or worse, bubble
+      // into handleText and read as a broken connection.
+      try { fn(fingerprint, msg); } catch { /* listener's problem, not ours */ }
+    }
   }
 
   private async handleBinary(mp: ManagedPeer, buf: ArrayBuffer): Promise<void> {
