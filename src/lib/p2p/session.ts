@@ -19,7 +19,8 @@
  * Pure-QR offline transport (no WebRTC at all) lives in {@link bulkQr}.
  */
 
-import { Peer } from './peer';
+import { Peer, defaultIceServers } from './peer';
+import { getNetState } from '../net';
 import {
   type PeerIdentity,
   importPublicKeyB64,
@@ -220,7 +221,11 @@ export class InitiatorSession {
     this.memberId = opts.memberId;
     this.warm = opts.warmCapture ?? warmCapturePermission;
     this.preferV1 = opts.preferV1 ?? false;
-    this.peer = new Peer();
+    // Reflexive candidates when there's internet — see defaultIceServers.
+    // Host candidates alone are not enough: they're mDNS names unless capture
+    // permission happened to be granted, and even real local IPs are dropped
+    // by the client isolation that hotel and ship networks run as standard.
+    this.peer = new Peer({ iceServers: defaultIceServers(getNetState() === 'internet') });
   }
 
   /** Returns the QR frames the initiator should display first. */
@@ -268,7 +273,11 @@ export class ResponderSession {
   constructor(opts: { identity: PeerIdentity; memberId: string }) {
     this.identity = opts.identity;
     this.memberId = opts.memberId;
-    this.peer = new Peer();
+    // Reflexive candidates when there's internet — see defaultIceServers.
+    // Host candidates alone are not enough: they're mDNS names unless capture
+    // permission happened to be granted, and even real local IPs are dropped
+    // by the client isolation that hotel and ship networks run as standard.
+    this.peer = new Peer({ iceServers: defaultIceServers(getNetState() === 'internet') });
   }
 
   /**

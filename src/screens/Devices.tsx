@@ -11,6 +11,8 @@ import { db } from '../lib/db';
 import { getOrCreateIdentity, type PeerIdentity } from '../lib/p2p/identity';
 import { InitiatorSession, ResponderSession, type HandshakeHello } from '../lib/p2p/session';
 import { FaceToFaceSession, type F2FState } from '../lib/p2p/faceToFace';
+import { diagnosePairing, type PairingDiagnosis } from '../lib/p2p/diagnose';
+import { useNetState } from '../lib/net';
 import { getPeerManager, CLOCK_SKEW_WARN_MS, type PeerSummary } from '../lib/p2p/manager';
 import { FrameReassembler } from '../lib/p2p/qr';
 import {
@@ -554,9 +556,11 @@ function FaceToFacePanel({
             </li>
             <li>
               Use <strong>AirDrop sync</strong> — it doesn't use WiFi at all and
-              carries photos too.
+              carries photos too. (It moves messages and photos, but you can't
+              race over it.)
             </li>
           </ol>
+          <ConnectionCheck />
         </div>
       )}
 
@@ -776,6 +780,54 @@ function DayPicker({ days, onChange }: { days: number; onChange: (d: number) => 
           {d === 0 ? 'All' : `${d}d`}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * "Why did that fail?", answered on the phone that failed.
+ *
+ * Pairing failures all look the same from the outside — the codes scan, then
+ * nothing — and the actual causes (a hidden local address, a filtered network,
+ * unreachable STUN) need different fixes. Rather than guess from a description
+ * of the symptom, this reports what this specific phone can actually offer.
+ */
+function ConnectionCheck() {
+  const [result, setResult] = useState<PairingDiagnosis | null>(null);
+  const [running, setRunning] = useState(false);
+  const online = useNetState((s) => s.state) === 'internet';
+
+  async function run() {
+    setRunning(true);
+    try {
+      setResult(await diagnosePairing(online));
+    } catch {
+      setResult(null);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="pt-2 border-t border-white/40 space-y-2">
+      <button
+        type="button"
+        onClick={() => void run()}
+        disabled={running}
+        className="text-xs font-semibold text-ocean disabled:opacity-50"
+      >
+        {running ? 'Checking…' : 'Run a connection check'}
+      </button>
+      {result && (
+        <div className="space-y-1">
+          <div className="text-ink-700">{result.summary}</div>
+          <div className="text-[10px] text-ink-500 tabular">
+            {result.types.join(' + ') || 'no candidates'} ·{' '}
+            {result.realLocalIp ? 'real local IP' : 'hidden local IP'} ·{' '}
+            {result.reflexive ? 'STUN ok' : 'no STUN'} · {result.ms}ms
+          </div>
+        </div>
+      )}
     </div>
   );
 }

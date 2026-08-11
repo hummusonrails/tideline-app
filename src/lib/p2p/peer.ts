@@ -6,10 +6,21 @@
  * shape QR-code signaling needs. Real-time apps trickle candidates over
  * a persistent channel, but we don't have one.
  *
- * iceServers defaults to an empty array. On a plane with no internet
- * the only candidates that resolve are local host + mDNS, which is
- * exactly what we need for same-WiFi connections. Callers can pass STUN
- * servers if they want internet-aware reflexive candidates as a bonus.
+ * ICE servers: see {@link defaultIceServers}. The original design passed none
+ * at all, on the reasoning that host + mDNS candidates are all you need on a
+ * shared WiFi. That reasoning has a hole, and it cost us a working pairing:
+ * browsers no longer put real local IPs in host candidates. They emit an
+ * mDNS `<uuid>.local` hostname instead, and the far side can only use it if it
+ * can resolve that name over multicast DNS. Hotel and cruise-ship networks
+ * almost always run client isolation, which blocks exactly that — so the two
+ * phones exchange perfectly valid SDP, find no usable candidate pair, and sit
+ * in "connecting" until they give up.
+ *
+ * With a STUN server configured there is also a server-reflexive candidate to
+ * try, which doesn't depend on multicast. It needs internet at the moment of
+ * pairing, so it's not a cure for every case — but it turns the common case
+ * (pairing in a hotel or on a hotspot, before the ship sails) from broken into
+ * working.
  */
 
 export type PeerSide = 'initiator' | 'responder';
@@ -54,6 +65,31 @@ export interface PeerLike {
 
 const DEFAULT_BUFFER_HIGH = 1 * 1024 * 1024;
 const DEFAULT_ICE_TIMEOUT = 4000;
+
+/**
+ * Public STUN servers, used only to learn our own reflexive address.
+ *
+ * No trip data touches these — STUN is a "what does my address look like from
+ * outside" question and nothing more. Two are listed so one being unreachable
+ * doesn't cost us the candidate; gathering ends on the first to answer, or on
+ * {@link DEFAULT_ICE_TIMEOUT} if neither does.
+ */
+export const STUN_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
+
+/**
+ * What to gather with, given what we know about connectivity.
+ *
+ * Offline, STUN can only ever time out, and making every pairing attempt wait
+ * out that timeout would turn the one situation the app was built for — two
+ * phones alone at sea — into the slowest one. So we ask for reflexive
+ * candidates when there's plausibly internet and skip them when there isn't.
+ */
+export function defaultIceServers(hasInternet: boolean): RTCIceServer[] {
+  return hasInternet ? STUN_SERVERS : [];
+}
 
 export class Peer {
   private pc: RTCPeerConnection;
