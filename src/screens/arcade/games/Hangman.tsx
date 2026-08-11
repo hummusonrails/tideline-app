@@ -86,7 +86,8 @@ export default function Hangman({ run, content }: GameProps) {
         right={`${ropeLeft} rope left`}
       />
 
-      <AnchorRope misses={round.misses} color={color} />
+      <div className="min-h-0 flex-1">
+        <AnchorRope misses={round.misses} color={color} />
 
       <p className="mt-2 text-center text-[10px] italic" style={{ color: 'var(--cab-dim)' }}>
         {round.hint}
@@ -107,7 +108,9 @@ export default function Hangman({ run, content }: GameProps) {
         ))}
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-1">
+      </div>
+
+      <div className="mt-3 grid shrink-0 grid-cols-7 gap-1">
         {LETTERS.map((letter) => {
           const used = round.guessed.has(letter);
           const hit = used && round.word.includes(letter);
@@ -140,7 +143,7 @@ export default function Hangman({ run, content }: GameProps) {
 function AnchorRope({ misses, color }: { misses: number; color: string }) {
   const drop = (misses / MAX_MISSES) * 52;
   return (
-    <svg viewBox="0 0 120 90" className="mx-auto block h-24 w-full" role="img" aria-label={`${misses} of ${MAX_MISSES} misses`}>
+    <svg viewBox="0 0 120 90" className="mx-auto block h-full max-h-28 w-full" role="img" aria-label={`${misses} of ${MAX_MISSES} misses`}>
       <line x1="10" y1="14" x2="110" y2="14" stroke="var(--cab-line)" strokeWidth="3" />
       <line
         x1="60"

@@ -19,7 +19,7 @@ import {
   matches,
   wordScore,
 } from '../../../lib/arcade/engines/wordsearch';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import type { GameProps } from '../shared';
 
 const SIZE = 9;
@@ -102,9 +102,13 @@ export default function TideSearch({ run, content }: GameProps) {
         right={`${remaining}s`}
       />
 
+      <FitBox ratio={1}>
       <div
-        className="grid touch-none select-none gap-0.5"
-        style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))` }}
+        className="grid h-full w-full touch-none select-none gap-0.5"
+        style={{
+          gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))`,
+          gridTemplateRows: `repeat(${SIZE}, minmax(0, 1fr))`,
+        }}
         onPointerDown={(e) => {
           const cell = cellFrom(e);
           if (cell === null) return;
@@ -131,7 +135,7 @@ export default function TideSearch({ run, content }: GameProps) {
             <div
               key={i}
               data-cell={i}
-              className="grid aspect-square place-items-center rounded text-[13px] font-bold"
+              className="grid min-h-0 place-items-center rounded text-[13px] font-bold"
               style={{
                 background: isSelected
                   ? color
@@ -146,8 +150,9 @@ export default function TideSearch({ run, content }: GameProps) {
           );
         })}
       </div>
+      </FitBox>
 
-      <ul className="mt-3 flex flex-wrap gap-1.5">
+      <ul className="mt-2 flex shrink-0 flex-wrap justify-center gap-1.5">
         {grid.placements.map((p) => (
           <li
             key={p.word}
@@ -163,8 +168,8 @@ export default function TideSearch({ run, content }: GameProps) {
         ))}
       </ul>
 
-      <p className="mt-2 text-center text-[9px] leading-relaxed" style={{ color: 'var(--cab-dim)' }}>
-        Drag from the first letter to the last. Words run in any direction, backwards included.
+      <p className="mt-1.5 shrink-0 text-center text-[9px] leading-relaxed" style={{ color: 'var(--cab-dim)' }}>
+        Drag from the first letter to the last. Any direction, backwards included.
       </p>
     </Board>
   );

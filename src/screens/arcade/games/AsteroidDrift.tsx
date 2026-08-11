@@ -201,7 +201,7 @@ export default function AsteroidDrift({ run }: GameProps) {
   return (
     <>
       <Screen canvasRef={canvasRef} width={W} height={H} />
-      <Controls>
+      <Controls className="flex-wrap justify-center">
         <DPad
           axis="horizontal"
           color={color}

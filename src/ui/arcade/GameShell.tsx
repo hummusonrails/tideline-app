@@ -44,31 +44,34 @@ export function GameShell({ run, children }: { run: ArcadeRun; children: ReactNo
   }, [run]);
 
   return (
-    <div className="arcade arcade-bg min-h-dvh">
-
-      <div className="px-3 pt-[max(env(safe-area-inset-top),0.75rem)] pb-[max(env(safe-area-inset-bottom),1rem)]">
+    // A cabinet is exactly as tall as the screen it's standing in. `h-dvh`
+    // and a flex column, rather than `min-h-dvh` and stacked blocks: the play
+    // field has to be told how much room is left over after the marquee, the
+    // score strip and the controls, or a tall board simply runs off the
+    // bottom of the phone with no way to scroll to it.
+    <div className="arcade arcade-bg flex h-dvh flex-col overflow-hidden">
+      <div className="shrink-0 px-3 pt-[max(env(safe-area-inset-top),0.5rem)]">
         <TopBar
           title={game.title}
           color={color}
           onBack={() => navigate('/arcade')}
           run={run}
         />
-
         <ScoreStrip run={run} color={color} />
+      </div>
 
-        <div className="crt cab-panel relative mt-2 overflow-hidden rounded-xl">
-          {active ? (
-            <div key={run.nonce} className="relative">
-              {children}
-            </div>
-          ) : (
-            <div className="aspect-[3/4] w-full" />
-          )}
+      <div className="crt cab-panel relative mx-3 mb-[max(env(safe-area-inset-bottom),0.75rem)] mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl">
+        {active ? (
+          <div key={run.nonce} className="flex min-h-0 flex-1 flex-col">
+            {children}
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
 
-          {run.phase === 'attract' && <AttractScreen run={run} color={color} />}
-          {run.phase === 'paused' && <PauseScreen run={run} color={color} />}
-          {run.phase === 'over' && <GameOverScreen run={run} color={color} />}
-        </div>
+        {run.phase === 'attract' && <AttractScreen run={run} color={color} />}
+        {run.phase === 'paused' && <PauseScreen run={run} color={color} />}
+        {run.phase === 'over' && <GameOverScreen run={run} color={color} />}
       </div>
     </div>
   );
@@ -178,8 +181,8 @@ export function LivesRow({ lives, color }: { lives: number; color: string }) {
 
 function Overlay({ children }: { children: ReactNode }) {
   return (
-    <div className="absolute inset-0 z-10 grid place-items-center bg-[rgba(6,1,15,0.88)] px-5 text-center">
-      <div className="pop-in w-full">{children}</div>
+    <div className="absolute inset-0 z-10 flex items-center justify-center overflow-y-auto bg-[rgba(6,1,15,0.88)] px-5 py-4 text-center">
+      <div className="pop-in my-auto w-full">{children}</div>
     </div>
   );
 }

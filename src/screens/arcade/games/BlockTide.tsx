@@ -231,7 +231,9 @@ export default function BlockTide({ run }: GameProps) {
           color={color}
           onPress={(dir) => move(dir === 'left' ? -1 : 1)}
         />
-        <div className="flex flex-col gap-2">
+        {/* Side by side, not stacked: every row of controls is a row the well
+            doesn't get, and the well is the game. */}
+        <div className="flex gap-2">
           <ActionButton label="Rot" color="var(--neon-gold)" onPress={rotate} />
           <ActionButton label="Drop" color="var(--neon-pink)" onPress={hardDrop} />
         </div>

@@ -26,7 +26,7 @@ import {
   type Board as GameBoard,
   type Move,
 } from '../../../lib/arcade/engines/g2048';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import { DPad } from '../../../ui/arcade/DPad';
 import type { GameProps } from '../shared';
 
@@ -86,43 +86,46 @@ export default function Tide2048({ run }: GameProps) {
     <Board>
       <StatusRow left="Merge matching swells" right={`Best ${bestRef.current || 2}`} />
 
-      <div
-        className="grid touch-none gap-1.5 rounded-xl p-1.5"
-        style={{
-          gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))`,
-          background: 'rgba(255,255,255,0.05)',
-        }}
-        {...swipe}
-      >
-        {board.flat().map((value, i) => {
+      <FitBox ratio={1}>
+        <div
+          className="grid h-full w-full touch-none gap-1.5 rounded-xl p-1.5"
+          style={{
+            gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${SIZE}, minmax(0, 1fr))`,
+            background: 'rgba(255,255,255,0.05)',
+          }}
+          {...swipe}
+        >
+          {board.flat().map((value, i) => {
           const style = tileStyle(value);
-          return (
-            <div
-              key={i}
-              className="grid aspect-square place-items-center rounded-lg"
-              style={{
-                background: value === 0 ? 'rgba(255,255,255,0.04)' : style.bg,
-                color: style.fg,
-                boxShadow: value >= 128 ? `0 0 14px ${style.bg}` : undefined,
-              }}
-            >
-              {value === 2048 && spec ? (
-                <CrewAvatar spec={spec} size={40} alt="2048" />
-              ) : value > 0 ? (
-                <span
-                  className={`pop-in font-bold ${
-                    value >= 1024 ? 'text-[13px]' : value >= 128 ? 'text-base' : 'text-lg'
-                  }`}
-                >
-                  {value}
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+            return (
+              <div
+                key={i}
+                className="grid min-h-0 place-items-center rounded-lg"
+                style={{
+                  background: value === 0 ? 'rgba(255,255,255,0.04)' : style.bg,
+                  color: style.fg,
+                  boxShadow: value >= 128 ? `0 0 14px ${style.bg}` : undefined,
+                }}
+              >
+                {value === 2048 && spec ? (
+                  <CrewAvatar spec={spec} size={40} alt="2048" />
+                ) : value > 0 ? (
+                  <span
+                    className={`pop-in font-bold ${
+                      value >= 1024 ? 'text-[13px]' : value >= 128 ? 'text-base' : 'text-lg'
+                    }`}
+                  >
+                    {value}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </FitBox>
 
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-3 flex shrink-0 items-center justify-between">
         <span className="text-[9px] uppercase tracking-widest" style={{ color: 'var(--cab-dim)' }}>
           Swipe or use the pad
         </span>

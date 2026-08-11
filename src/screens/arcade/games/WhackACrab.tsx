@@ -15,7 +15,7 @@ import { CrewAvatar } from '../../../ui/CrewAvatar';
 import { sfx } from '../../../lib/arcade/sound';
 import { hueColor } from '../../../lib/arcade/catalog';
 import { rngFromString, randInt } from '../../../lib/arcade/rng';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import type { GameProps } from '../shared';
 
 const HOLES = 9;
@@ -125,8 +125,9 @@ export default function WhackACrab({ run, content }: GameProps) {
         left={`${hitsRef.current} crabs · ${missesRef.current} oops`}
         right={`${remaining}s`}
       />
-      <div className="grid grid-cols-3 gap-2">
-        {holes.map((cell, i) => {
+      <FitBox ratio={1}>
+        <div className="grid h-full w-full grid-cols-3 grid-rows-3 gap-2">
+          {holes.map((cell, i) => {
           const flash = struck?.hole === i;
           const member = cell.kind === 'crew' ? crew.find((c) => c.id === cell.memberId) : null;
           return (
@@ -144,7 +145,7 @@ export default function WhackACrab({ run, content }: GameProps) {
                   ? `${member?.name ?? 'A crewmate'} — do not whack`
                   : 'Empty hole'
               }
-              className={`relative grid aspect-square touch-none place-items-center overflow-hidden rounded-full border ${
+              className={`relative grid min-h-0 touch-none place-items-center overflow-hidden rounded-full border ${
                 flash ? 'shake' : ''
               }`}
               style={{
@@ -176,11 +177,12 @@ export default function WhackACrab({ run, content }: GameProps) {
                   )}
                 </span>
               )}
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-3 text-center text-[9px] uppercase tracking-widest" style={{ color }}>
+              </button>
+            );
+          })}
+        </div>
+      </FitBox>
+      <p className="mt-2 shrink-0 text-center text-[9px] uppercase tracking-widest" style={{ color }}>
         🦞 golden crab = 5 · 🦀 crab = 1 · crewmate = −3
       </p>
     </Board>

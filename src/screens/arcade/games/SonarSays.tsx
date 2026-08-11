@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CrewAvatar } from '../../../ui/CrewAvatar';
 import { tone, sfx } from '../../../lib/arcade/sound';
 import { hueColor } from '../../../lib/arcade/catalog';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import type { GameProps } from '../shared';
 
 /** One note per pad, a pentatonic-ish set so any sequence sounds deliberate. */
@@ -117,8 +117,9 @@ export default function SonarSays({ run, content }: GameProps) {
         right={`Round ${Math.max(1, sequence.length)}`}
       />
 
-      <div className="grid grid-cols-2 gap-2.5">
-        {pads.map(({ index, member }) => {
+      <FitBox ratio={1}>
+        <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-2.5">
+          {pads.map(({ index, member }) => {
           const isLit = lit === index;
           return (
             <button
@@ -130,7 +131,7 @@ export default function SonarSays({ run, content }: GameProps) {
                 tap(index);
               }}
               aria-label={member ? `${member.name}'s pad` : `${PAD_NAMES[index]} pad`}
-              className="relative grid aspect-square touch-none place-items-center rounded-2xl border-2 transition-all duration-100 disabled:opacity-90"
+              className="relative grid min-h-0 touch-none place-items-center rounded-2xl border-2 transition-all duration-100 disabled:opacity-90"
               style={{
                 borderColor: PAD_COLORS[index],
                 background: isLit
@@ -158,12 +159,13 @@ export default function SonarSays({ run, content }: GameProps) {
                   {member.name}
                 </span>
               )}
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      </FitBox>
 
-      <p className="mt-3 text-center text-[9px] uppercase tracking-widest" style={{ color }}>
+      <p className="mt-2 shrink-0 text-center text-[9px] uppercase tracking-widest" style={{ color }}>
         {mode === 'watch' ? 'Sonar transmitting…' : 'Repeat it back'}
       </p>
     </Board>

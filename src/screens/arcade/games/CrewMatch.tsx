@@ -16,7 +16,7 @@ import { useCountdown } from '../../../lib/arcade/loop';
 import { sfx } from '../../../lib/arcade/sound';
 import { hueColor } from '../../../lib/arcade/catalog';
 import { rngFromString, shuffle } from '../../../lib/arcade/rng';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import type { CrewMember } from '../../../lib/arcade/content';
 import type { GameProps } from '../shared';
 
@@ -124,14 +124,15 @@ export default function CrewMatch({ run, content }: GameProps) {
     <Board>
       <StatusRow left={`${matched}/${PAIRS} pairs · ${moves} moves`} right={`${remaining}s`} />
 
-      <div className="grid grid-cols-4 gap-2">
-        {cards.map((card) => (
+      <FitBox ratio={(4 * 3) / (4 * 4)}>
+        <div className="grid h-full w-full grid-cols-4 grid-rows-4 gap-2">
+          {cards.map((card) => (
           <button
             key={card.id}
             type="button"
             onClick={() => flip(card.id)}
             aria-label={card.flipped || card.matched ? card.face.label : 'Face-down card'}
-            className="grid aspect-[3/4] place-items-center rounded-lg border transition-all"
+            className="grid min-h-0 place-items-center rounded-lg border transition-all"
             style={{
               borderColor: card.matched ? 'var(--neon-lime)' : 'var(--cab-line)',
               background: card.flipped || card.matched
@@ -151,11 +152,12 @@ export default function CrewMatch({ run, content }: GameProps) {
                 ?
               </span>
             )}
-          </button>
-        ))}
-      </div>
+            </button>
+          ))}
+        </div>
+      </FitBox>
 
-      <p className="mt-3 text-center text-[9px] uppercase tracking-widest" style={{ color: 'var(--cab-dim)' }}>
+      <p className="mt-2 shrink-0 text-center text-[9px] uppercase tracking-widest" style={{ color: 'var(--cab-dim)' }}>
         Clear the board before the clock does
       </p>
     </Board>

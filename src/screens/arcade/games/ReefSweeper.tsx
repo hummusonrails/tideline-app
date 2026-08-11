@@ -28,7 +28,7 @@ import {
   toggleFlag,
   type Board as MineBoard,
 } from '../../../lib/arcade/engines/minesweeper';
-import { Board, StatusRow } from '../shared';
+import { Board, FitBox, StatusRow } from '../shared';
 import type { GameProps } from '../shared';
 
 const ROUND_SECONDS = 240;
@@ -111,11 +111,15 @@ export default function ReefSweeper({ run }: GameProps) {
         right={`${remaining}s`}
       />
 
-      <div
-        className="grid touch-none gap-0.5"
-        style={{ gridTemplateColumns: `repeat(${DIFFICULTY.w}, minmax(0, 1fr))` }}
-      >
-        {Array.from({ length: DIFFICULTY.w * DIFFICULTY.h }, (_, i) => {
+      <FitBox ratio={DIFFICULTY.w / DIFFICULTY.h}>
+        <div
+          className="grid h-full w-full touch-none gap-0.5"
+          style={{
+            gridTemplateColumns: `repeat(${DIFFICULTY.w}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${DIFFICULTY.h}, minmax(0, 1fr))`,
+          }}
+        >
+          {Array.from({ length: DIFFICULTY.w * DIFFICULTY.h }, (_, i) => {
           const x = i % DIFFICULTY.w;
           const y = Math.floor(i / DIFFICULTY.w);
           const cell = board.cells[idx(board, x, y)];
@@ -148,7 +152,7 @@ export default function ReefSweeper({ run }: GameProps) {
                   ? 'Flagged'
                   : 'Unknown water'
               }
-              className="grid aspect-square place-items-center rounded-[3px] text-[11px] font-bold"
+              className="grid min-h-0 place-items-center rounded-[3px] text-[11px] font-bold"
               style={{
                 background: cell.revealed
                   ? cell.reef
@@ -168,12 +172,13 @@ export default function ReefSweeper({ run }: GameProps) {
                 : cell.flagged
                 ? '🚩'
                 : ''}
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      </FitBox>
 
-      <p className="mt-3 text-center text-[9px] leading-relaxed" style={{ color }}>
+      <p className="mt-2 shrink-0 text-center text-[9px] leading-relaxed" style={{ color }}>
         Tap to chart · press and hold to plant a flag
       </p>
     </Board>
