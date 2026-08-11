@@ -39,7 +39,8 @@ import {
 import {
   canSendKudos, kudosRemaining, goalProgress, KUDOS_POINTS, MAX_NOTE_LENGTH,
 } from '../lib/kudos';
-import { Camera, CheckCircle2, Check, X } from 'lucide-react';
+import { getPeerManager } from '../lib/p2p/manager';
+import { Camera, CheckCircle2, Check, X, ChevronRight } from 'lucide-react';
 import type {
   Challenge, ChallengeCompletion, Trivia, MemberId, Hunt, PointEvent, CrewGoal,
 } from '../types';
@@ -71,11 +72,59 @@ export function Quest() {
         </PillButton>
         <PillButton active={tab === 'prizes'} onClick={() => setTab('prizes')}>Prizes</PillButton>
       </div>
+      {/* Sits above the tabs, on every one of them. Quest is the tab people
+          open when they want to compete, so the head-to-head game belongs
+          here where they're already looking, not only on Today. */}
+      <DuelEntry />
       {tab === 'leaderboard' && <Leaderboard myId={myId} />}
       {tab === 'challenges' && <Challenges myId={myId} />}
       {tab === 'hunts' && <Hunts myId={myId} />}
       {tab === 'prizes' && <Prizes myId={myId} />}
     </Page>
+  );
+}
+
+/**
+ * The kart duel, offered from the tab where competing already happens.
+ *
+ * Mirrors the Today card deliberately: unconnected it explains the
+ * prerequisite and routes to pairing, connected it goes to the grid. Two front
+ * doors for one game is not redundancy when the alternative is nobody finding
+ * either of them.
+ */
+function DuelEntry() {
+  const navigate = useNavigate();
+  const [live, setLive] = useState<string | null>(null);
+  useEffect(
+    () =>
+      getPeerManager().subscribe((summaries) => {
+        const peer = summaries.find((s) => s.state === 'syncing' || s.state === 'idle');
+        setLive(peer ? peer.displayName || peer.memberId : null);
+      }),
+    [],
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(live ? '/race' : '/devices')}
+      className="w-full text-left active:scale-[0.99] transition"
+    >
+      <GlassCard
+        className={`flex items-center gap-3 !py-4 ${live ? 'ring-2 ring-ocean/30' : ''}`}
+      >
+        <div className="text-2xl">🏁</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">Kart Duel</div>
+          <div className="text-xs text-ink-600 truncate">
+            {live
+              ? `${live} is connected — race them now`
+              : 'Two phones, side by side, no internet needed'}
+          </div>
+        </div>
+        <ChevronRight size={16} className="text-ink-600 shrink-0" />
+      </GlassCard>
+    </button>
   );
 }
 

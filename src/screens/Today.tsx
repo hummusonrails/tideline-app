@@ -373,6 +373,18 @@ function TodayHunts({ myId }: { myId: string }) {
  * device-to-device over the same link the sync uses. Surfaced on Today so
  * finding out the game exists doesn't require spelunking the Devices screen.
  */
+/**
+ * The duel's front door on Today.
+ *
+ * Always rendered, which is the whole point. It used to appear only once a
+ * peer was already connected — so the one screen everybody looks at showed no
+ * trace of the feature, and the only way to find it was Profile → Devices,
+ * where the button was greyed out anyway. A game nobody can find is not a
+ * game.
+ *
+ * Unconnected, it says what's missing and takes you to the screen that fixes
+ * it. Connected, it goes straight to the grid.
+ */
 function DuelPrompt() {
   const navigate = useNavigate();
   const [live, setLive] = useState<string | null>(null);
@@ -384,19 +396,23 @@ function DuelPrompt() {
       }),
     [],
   );
-  if (!live) return null;
+
   return (
     <button
       type="button"
-      onClick={() => navigate('/race')}
+      onClick={() => navigate(live ? '/race' : '/devices')}
       className="w-full text-left active:scale-[0.99] transition"
     >
-      <GlassCard className="flex items-center gap-3 !py-4 ring-2 ring-ocean/30">
+      <GlassCard
+        className={`flex items-center gap-3 !py-4 ${live ? 'ring-2 ring-ocean/30' : ''}`}
+      >
         <div className="text-2xl">🏁</div>
         <div className="flex-1 min-w-0">
           <div className="font-medium">Kart Duel</div>
           <div className="text-xs text-ink-600 truncate">
-            {live} is connected — challenge them to a race
+            {live
+              ? `${live} is connected — challenge them to a race`
+              : 'Pair another phone to race head-to-head'}
           </div>
         </div>
         <ChevronRight size={16} className="text-ink-600 shrink-0" />
