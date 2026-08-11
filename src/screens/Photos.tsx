@@ -244,6 +244,11 @@ function PhotoTile({ photo, onClick }: { photo: Photo; onClick: () => void }) {
           <ImageIcon size={20} />
         </span>
       )}
+      {/* Who took it, without opening it. In a shared album of four people
+          that's the first thing anyone wants to know. */}
+      <span className="absolute bottom-1.5 left-1.5 drop-shadow">
+        <Avatar seed={photo.from} size={22} alt="" />
+      </span>
     </button>
   );
 }

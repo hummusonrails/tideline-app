@@ -7,6 +7,7 @@ import { GlassCard } from '../ui/GlassCard';
 import { PillButton } from '../ui/PillButton';
 import { TierBadge } from '../ui/TierBadge';
 import { Avatar } from '../ui/Avatar';
+import { Podium } from '../ui/Podium';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
@@ -244,6 +245,15 @@ function Leaderboard({ myId }: { myId: MemberId }) {
 
   return (
     <div className="space-y-3">
+      <Podium
+        rows={rows.map((r) => ({
+          member: r.member,
+          name: byId[r.member]?.displayName ?? '—',
+          points: r.points,
+          tier: r.tier,
+        }))}
+        myId={myId}
+      />
       <CrewGoalBar events={events} />
       {rows.map((r, i) => {
         const p = byId[r.member];

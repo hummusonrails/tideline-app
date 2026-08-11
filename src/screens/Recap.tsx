@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { X, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { db } from '../lib/db';
+import { Avatar } from '../ui/Avatar';
 import { useObjectUrl } from '../lib/blobUrl';
 import { todayYMD, prettyDate } from '../lib/time';
 import { useTripMeta } from '../lib/trip';
@@ -215,7 +216,7 @@ export function Recap() {
 
 function SlideView({ slide, date }: { slide: RecapSlide; date: string }) {
   if (slide.kind === 'photo') {
-    return <PhotoSlide photo={slide.photo} author={slide.author} />;
+    return <PhotoSlide photo={slide.photo} author={slide.author} authorId={slide.authorId} />;
   }
 
   if (slide.kind === 'journal') {
@@ -223,7 +224,12 @@ function SlideView({ slide, date }: { slide: RecapSlide; date: string }) {
       <div className="absolute inset-0 grid place-items-center p-10 text-center">
         <div>
           <div className="text-[17px] leading-relaxed">“{slide.body}”</div>
-          <div className="text-sm text-white/60 mt-4">— {slide.author}</div>
+          <div className="mt-4 flex items-center justify-center gap-2">
+            {slide.authorId && (
+              <Avatar seed={slide.authorId} displayName={slide.author} size={28} alt="" />
+            )}
+            <span className="text-sm text-white/60">{slide.author}</span>
+          </div>
         </div>
       </div>
     );
@@ -289,11 +295,17 @@ function SlideView({ slide, date }: { slide: RecapSlide; date: string }) {
           <div className="space-y-2">
             {slide.rows.map((r, i) => (
               <div
-                key={r.name + i}
-                className="flex items-center gap-3 rounded-2xl bg-white/10 px-4 py-3"
+                key={r.member}
+                className="flex items-center gap-3 rounded-2xl bg-white/10 px-3 py-2.5"
               >
                 <span className="tabular text-white/50 w-4">{i + 1}</span>
-                <span className="flex-1 min-w-0 truncate">{r.name}</span>
+                {/* Nineteen days of choosing a hat, and this is the frame it
+                    was for. */}
+                <Avatar seed={r.member} displayName={r.name} size={36} alt={r.name} />
+                <span className="flex-1 min-w-0 truncate">
+                  {r.name}
+                  {i === 0 && <span aria-hidden> 👑</span>}
+                </span>
                 <span className="text-[11px] text-white/50 capitalize">{r.tier}</span>
                 <span className="font-display text-lg tabular font-semibold">{r.points}</span>
               </div>
@@ -314,7 +326,13 @@ function SlideView({ slide, date }: { slide: RecapSlide; date: string }) {
   );
 }
 
-function PhotoSlide({ photo, author }: { photo: Photo; author: string }) {
+function PhotoSlide({
+  photo, author, authorId,
+}: {
+  photo: Photo;
+  author: string;
+  authorId: string;
+}) {
   const blob = useLiveQuery(() => db.photoBlobs.get(photo.id), [photo.id]);
   const url = useObjectUrl(blob?.bytes);
   return (
@@ -328,7 +346,10 @@ function PhotoSlide({ photo, author }: { photo: Photo; author: string }) {
       )}
       <div className="absolute bottom-20 left-6 right-6 text-center">
         {photo.caption && <div className="text-base drop-shadow">{photo.caption}</div>}
-        <div className="text-xs text-white/60 mt-1">{author}</div>
+        <div className="mt-1.5 flex items-center justify-center gap-1.5">
+          <Avatar seed={authorId} displayName={author} size={22} alt="" />
+          <span className="text-xs text-white/60">{author}</span>
+        </div>
       </div>
     </div>
   );

@@ -83,5 +83,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // Agent worktrees live under .claude/ and contain a full second copy of
+    // the source tree. Without this, a run here collects both trees, doubles
+    // the reported count, and quietly reports another branch's health as if it
+    // were this one's.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/**'],
   },
 });

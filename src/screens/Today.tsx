@@ -37,6 +37,8 @@ import {
 } from '../lib/moments';
 import { buildReminders } from '../lib/reminders';
 import { useEggAnchor } from '../lib/eggRuntime';
+import { Avatar } from '../ui/Avatar';
+import { AvatarStack } from '../ui/AvatarStack';
 import type { ItineraryItem, Place, HabitCheckIn, PointEvent, PointsConfig, Tier, Moment } from '../types';
 
 export function Today() {
@@ -154,6 +156,8 @@ export function Today() {
         </div>
       )}
 
+      <CrewStrip myId={id} events={events} />
+
       {/* Tier + habit row */}
       <div className="grid grid-cols-2 gap-3">
         <GlassCard className="!p-4">
@@ -234,6 +238,79 @@ export function Today() {
       <TodayHunts myId={id} />
       <TodayChallenges date={today} />
     </Page>
+  );
+}
+
+/**
+ * The whole crew, in one glanceable row: face, today's haul, and how far
+ * ahead or behind they are.
+ *
+ * Today used to show only your own numbers, which makes a competition into a
+ * solo grind. Seeing the others — and their moods, and who's pulled ahead
+ * since breakfast — is the thing that makes anyone open Quest.
+ */
+function CrewStrip({ myId, events }: { myId: string; events: PointEvent[] }) {
+  const navigate = useNavigate();
+  const profiles = useLiveQuery(() => db.profiles.toArray(), []) ?? [];
+  const today = todayYMD();
+
+  const rows = useMemo(() => {
+    const scored = profiles.map((p) => ({
+      profile: p,
+      total: totalPoints(events, p.id),
+      todayPoints: events
+        .filter((e) => e.to === p.id && localDay(e.at) === today)
+        .reduce((sum, e) => sum + e.amount, 0),
+    }));
+    return scored.sort((a, b) => b.total - a.total);
+  }, [profiles, events, today]);
+
+  if (rows.length < 2) return null;
+  const leader = rows[0].total;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/quest')}
+      className="w-full text-left active:scale-[0.99] transition"
+      aria-label="Crew standings"
+    >
+      <GlassCard className="!py-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-xs uppercase tracking-wider text-ink-600 font-medium">The crew</div>
+          <ChevronRight size={14} className="text-ink-600" />
+        </div>
+        <div className="flex items-start justify-between gap-1">
+          {rows.map((r, i) => {
+            const behind = leader - r.total;
+            return (
+              <div key={r.profile.id} className="flex-1 min-w-0 flex flex-col items-center gap-1">
+                <div className="relative">
+                  <Avatar
+                    seed={r.profile.id}
+                    displayName={r.profile.displayName}
+                    size={44}
+                    alt={r.profile.displayName}
+                  />
+                  {i === 0 && (
+                    <span aria-hidden className="absolute -top-2 -right-1 text-sm">👑</span>
+                  )}
+                </div>
+                <div className="text-[11px] font-medium truncate max-w-full">
+                  {r.profile.id === myId ? 'You' : r.profile.displayName}
+                </div>
+                <div className="font-display tabular text-sm font-semibold leading-none">
+                  {r.total}
+                </div>
+                <div className="text-[10px] text-ink-500 leading-none">
+                  {r.todayPoints > 0 ? `+${r.todayPoints} today` : behind > 0 ? `−${behind}` : '—'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </GlassCard>
+    </button>
   );
 }
 
@@ -384,12 +461,24 @@ function MomentCard({ myId }: { myId: string }) {
           </button>
         )}
 
-        {crewIn.length > 0 && (
-          <div className="mt-3 text-xs text-ink-600">
-            {crewIn.length} of {profiles.length || crewIn.length} on deck
-            {profiles.length > 0 && crewIn.length === profiles.length && ' — everyone made it 🎉'}
-          </div>
-        )}
+        {/* Faces, not a fraction. The whole mechanic is "is everyone here
+            yet", and the missing crew showing as greyed-out ghosts is what
+            makes someone go and fetch them. */}
+        <div className="mt-3 flex items-center gap-2">
+          <AvatarStack
+            members={crewIn}
+            ghosts={profiles.map((p) => p.id)}
+            size={28}
+            max={6}
+          />
+          <span className="text-xs text-ink-600">
+            {crewIn.length === 0
+              ? 'Nobody yet'
+              : profiles.length > 0 && crewIn.length === profiles.length
+                ? 'Everyone made it 🎉'
+                : `${crewIn.length} of ${profiles.length || crewIn.length} on deck`}
+          </span>
+        </div>
       </GlassCard>
     </>
   );

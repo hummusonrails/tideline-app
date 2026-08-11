@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { ChevronLeft, Lock, Check } from 'lucide-react';
 import { GlassCard } from '../ui/GlassCard';
 import { CrewAvatar } from '../ui/CrewAvatar';
+import { Avatar } from '../ui/Avatar';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { enqueue } from '../lib/sync';
@@ -151,6 +153,11 @@ export function AvatarStudio() {
           <PartRow label="Accessory" parts={ACCESSORIES} value={draft.accessory ?? 'none'} draftPalette={draft.palette}
                    unlocks={unlocks} onPick={(id) => set({ accessory: id === 'none' ? undefined : id })} base={draft.base} />
 
+          {/* The whole point of designing one is standing next to the others.
+              Showing the line-up here means you can see how yours reads
+              against the rest of the crew before you commit to it. */}
+          <CrewLineup myId={myId} draft={draft} />
+
           <div className="text-xs text-ink-500 text-center px-6 leading-relaxed">
             Locked pieces unlock as you climb tiers, finish hunts and find
             secrets. Your look syncs to the family next time there's internet.
@@ -167,6 +174,41 @@ export function AvatarStudio() {
         </main>
       </div>
     </div>
+  );
+}
+
+/**
+ * Your unsaved draft, standing in the line-up with everyone else's saved look.
+ *
+ * Uses the live draft rather than the stored spec so the comparison updates as
+ * you fiddle — the question people are actually asking is "does mine look
+ * better than theirs", and they can only answer it side by side.
+ */
+function CrewLineup({ myId, draft }: { myId: string; draft: AvatarSpec }) {
+  const profiles = useLiveQuery(() => db.profiles.toArray(), []) ?? [];
+  const others = profiles.filter((p) => p.id !== myId);
+  if (others.length === 0) return null;
+
+  return (
+    <section>
+      <SectionLabel>The line-up</SectionLabel>
+      <GlassCard>
+        <div className="flex items-end justify-around gap-2">
+          <div className="flex flex-col items-center gap-1.5">
+            <CrewAvatar spec={draft} size={56} alt="Your crew avatar" />
+            <span className="text-[11px] font-medium text-ocean">You</span>
+          </div>
+          {others.map((p) => (
+            <div key={p.id} className="flex flex-col items-center gap-1.5">
+              <Avatar seed={p.id} displayName={p.displayName} size={48} alt={p.displayName} />
+              <span className="text-[11px] text-ink-600 max-w-[64px] truncate">
+                {p.displayName}
+              </span>
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+    </section>
   );
 }
 

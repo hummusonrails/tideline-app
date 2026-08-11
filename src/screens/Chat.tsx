@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
 import { Avatar } from '../ui/Avatar';
+import { AvatarStack } from '../ui/AvatarStack';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { useMyProfile, useAvatarSrc } from '../lib/profile';
@@ -334,8 +335,17 @@ export function Chat() {
 
                 {reactionEntries.length > 0 && (
                   <div className="flex gap-1 mt-1 mx-1">
+                    {/* The reactor's face rides with the emoji. A row of bare
+                        hearts tells you a message landed; these tell you who
+                        with — which is the part worth knowing in a group of
+                        four. */}
                     {reactionEntries.map(([who, emoji]) => (
-                      <span key={who} className="text-sm rounded-full bg-white/70 ring-1 ring-white/80 px-1.5 py-0.5">
+                      <span
+                        key={who}
+                        className="flex items-center gap-1 text-sm rounded-full bg-white/70 ring-1 ring-white/80 pl-0.5 pr-1.5 py-0.5"
+                        title={byId[who]?.displayName}
+                      >
+                        <Avatar seed={who} displayName={byId[who]?.displayName} size={16} alt="" />
                         {emoji}
                       </span>
                     ))}
@@ -546,7 +556,12 @@ function PollBody({
               />
               <span className="relative flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate">{opt}</span>
-                <span className="tabular text-xs opacity-80 shrink-0">{tally.counts[i]}</span>
+                {/* Who voted, not just how many. A count is a statistic; four
+                    faces is who you have to argue with at dinner. */}
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <AvatarStack members={tally.votersByOption[i]} size={20} max={4} />
+                  <span className="tabular text-xs opacity-80">{tally.counts[i]}</span>
+                </span>
               </span>
             </button>
           );
@@ -681,8 +696,13 @@ function PredictionBody({
                   {isOutcome && '✅ '}
                   {opt}
                 </span>
+                {/* Guesses stay secret until the lock, then everyone's face
+                    appears against what they called. That reveal is the fun. */}
                 {(locked || outcome !== null) && (
-                  <span className="tabular text-xs opacity-80 shrink-0">{tally.counts[i]}</span>
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <AvatarStack members={tally.votersByOption[i]} size={20} max={4} />
+                    <span className="tabular text-xs opacity-80">{tally.counts[i]}</span>
+                  </span>
                 )}
               </span>
             </button>
@@ -753,8 +773,18 @@ function DuelBody({
         <Swords size={11} /> Duel
       </div>
       <div className="font-medium">{duel.text}</div>
-      <div className="text-[11px] opacity-70 mt-1">
-        {challengerName} vs {targetName}
+      {/* Two faces with a VS between them. A duel that renders as a sentence
+          reads like an announcement; this reads like a fixture. */}
+      <div className="flex items-center justify-center gap-3 mt-2.5">
+        <div className="flex flex-col items-center gap-1">
+          <Avatar seed={message.from} displayName={challengerName} size={40} alt={challengerName} />
+          <span className="text-[10px] opacity-70 max-w-[64px] truncate">{challengerName}</span>
+        </div>
+        <span className="font-display text-sm font-semibold opacity-60">VS</span>
+        <div className="flex flex-col items-center gap-1">
+          <Avatar seed={duel.target} displayName={targetName} size={40} alt={targetName} />
+          <span className="text-[10px] opacity-70 max-w-[64px] truncate">{targetName}</span>
+        </div>
       </div>
 
       {winner ? (

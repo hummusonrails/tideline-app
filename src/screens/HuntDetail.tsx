@@ -7,6 +7,7 @@ import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { GlassCard } from '../ui/GlassCard';
 import { Confetti } from '../ui/Confetti';
+import { AvatarStack } from '../ui/AvatarStack';
 import { todayYMD } from '../lib/time';
 import { completeSynthetic, awardPoints, EARN, CAPS } from '../lib/award';
 import { compressForPost } from '../lib/compress';
@@ -171,6 +172,11 @@ function StageTimeline({ hunt, states }: { hunt: Hunt; states: StageState[] }) {
                 <span className="text-[11px] text-ink-500 shrink-0" title="Hint taken — half points">
                   💡
                 </span>
+              )}
+              {/* Credit where it's due — on a team hunt this is the record of
+                  who actually cracked which clue. */}
+              {s.status === 'done' && (
+                <AvatarStack members={s.by} size={20} max={3} className="shrink-0" />
               )}
             </li>
           ))}

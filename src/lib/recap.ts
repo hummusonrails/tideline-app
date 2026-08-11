@@ -29,8 +29,10 @@ import { isKudosCredit } from './kudos';
 import { huntFinaleId } from './hunts';
 
 export type RecapSlide =
-  | { kind: 'photo'; photo: Photo; author: string }
-  | { kind: 'journal'; body: string; author: string }
+  // `authorId` rides alongside the name so the player can draw their crew
+  // avatar without having to be handed a profile lookup as well.
+  | { kind: 'photo'; photo: Photo; author: string; authorId: MemberId }
+  | { kind: 'journal'; body: string; author: string; authorId: MemberId }
   | { kind: 'stat'; headline: string; detail: string }
   | { kind: 'end'; headline: string }
   /** Full-trip only: a day divider in the story. */
@@ -39,8 +41,8 @@ export type RecapSlide =
   | { kind: 'award'; headline: string; winner: string; detail: string }
   /** Full-trip only: the payoff text from a completed meta-hunt. */
   | { kind: 'reveal'; headline: string; body: string }
-  /** Full-trip only: the final standings. */
-  | { kind: 'leaderboard'; rows: { name: string; points: number; tier: Tier }[] };
+  /** Full-trip only: the final standings. Carries ids so it can show faces. */
+  | { kind: 'leaderboard'; rows: { member: MemberId; name: string; points: number; tier: Tier }[] };
 
 export interface RecapInput {
   date: string;                 // YYYY-MM-DD, local
@@ -87,6 +89,7 @@ export function buildRecap(input: RecapInput): RecapSlide[] {
     kind: 'photo' as const,
     photo,
     author: nameOf(photo.from),
+    authorId: photo.from,
   }));
 
   const dayPoints = input.pointEvents.filter((e) => localDay(e.at) === input.date);
@@ -118,7 +121,7 @@ export function buildRecap(input: RecapInput): RecapSlide[] {
     .sort((a, b) => a.sentAt.localeCompare(b.sentAt))
     .slice(0, MAX_JOURNALS);
   for (const j of journals) {
-    slides.push({ kind: 'journal', body: j.body, author: nameOf(j.from) });
+    slides.push({ kind: 'journal', body: j.body, author: nameOf(j.from), authorId: j.from });
   }
 
   const checkedIn = input.habits.filter((h) => h.date === input.date).length;
@@ -219,10 +222,15 @@ export function buildTripRecap(input: TripRecapInput): RecapSlide[] {
       detail: dayPoints > 0 ? `+${dayPoints} points` : '',
     });
     for (const photo of dayPhotos) {
-      slides.push({ kind: 'photo', photo, author: nameOf(photo.from) });
+      slides.push({ kind: 'photo', photo, author: nameOf(photo.from), authorId: photo.from });
     }
     if (dayJournal) {
-      slides.push({ kind: 'journal', body: dayJournal.body, author: nameOf(dayJournal.from) });
+      slides.push({
+        kind: 'journal',
+        body: dayJournal.body,
+        author: nameOf(dayJournal.from),
+        authorId: dayJournal.from,
+      });
     }
   }
 
@@ -245,7 +253,7 @@ export function buildTripRecap(input: TripRecapInput): RecapSlide[] {
   const rows = leaderboard(
     input.pointEvents as PointEvent[],
     input.profiles.map((p) => p.id),
-  ).map((r) => ({ name: nameOf(r.member), points: r.points, tier: r.tier }));
+  ).map((r) => ({ member: r.member, name: nameOf(r.member), points: r.points, tier: r.tier }));
   if (rows.length > 0) slides.push({ kind: 'leaderboard', rows });
 
   slides.push({ kind: 'end', headline: 'See you on the next one' });
