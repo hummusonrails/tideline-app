@@ -9,11 +9,16 @@ import { Quest } from './screens/Quest';
 import { Profile } from './screens/Profile';
 import { Panic } from './screens/Panic';
 import { PlaceDetail } from './screens/PlaceDetail';
+import { HuntDetail } from './screens/HuntDetail';
+import { AvatarStudio } from './screens/AvatarStudio';
+import { CrewDeck } from './screens/CrewDeck';
 import { About } from './screens/About';
 import { Devices } from './screens/Devices';
 import { Recap } from './screens/Recap';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
+import { EggProvider } from './lib/eggRuntime';
+import { EggOverlay, CornerTaps } from './ui/EggEffects';
 import { useSession, isUnlockFresh } from './state/session';
 import { startSyncLoop } from './lib/sync';
 import { refreshSubscription } from './lib/push';
@@ -71,8 +76,11 @@ export function App() {
 
   return (
     <HashRouter>
+      <EggProvider>
       {updateReady && <UpdateBanner onApply={() => triggerUpdate()} />}
       {showFirstRun && <FirstRun onDone={() => setFirstRunDone(true)} />}
+      {/* Renders whatever the egg runtime has raised, from any screen. */}
+      <EggOverlay />
       <Routes>
         <Route path="/panic" element={<Panic />} />
         {needsOnboarding ? (
@@ -88,6 +96,10 @@ export function App() {
             <Route path="/quest" element={<WithTabs><Quest /></WithTabs>} />
             <Route path="/profile" element={<WithTabs><Profile /></WithTabs>} />
             <Route path="/place/:slug" element={<WithTabs><PlaceDetail /></WithTabs>} />
+            <Route path="/hunt/:id" element={<WithTabs><HuntDetail /></WithTabs>} />
+            <Route path="/avatar" element={<WithTabs><AvatarStudio /></WithTabs>} />
+            {/* Not linked from anywhere — you get here by finding the way in. */}
+            <Route path="/crew-deck" element={<WithTabs><CrewDeck /></WithTabs>} />
             <Route path="/devices" element={<WithTabs><Devices /></WithTabs>} />
             {/* Full-screen by design — no tab bar over the slideshow. */}
             <Route path="/recap" element={<Recap />} />
@@ -96,6 +108,7 @@ export function App() {
           </>
         )}
       </Routes>
+      </EggProvider>
     </HashRouter>
   );
 }
@@ -107,6 +120,8 @@ function WithTabs({ children }: { children: React.ReactNode }) {
       {/* Clears the tab bar, which grew when labels were added. */}
       <div className="min-h-dvh pb-32">{children}</div>
       <TabBar />
+      {/* Above the tab bar in z-order but invisible; see CornerTaps. */}
+      <CornerTaps />
     </>
   );
 }

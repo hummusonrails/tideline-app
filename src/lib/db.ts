@@ -12,6 +12,8 @@ import type {
   ItineraryItem,
   PointsConfig,
   Reaction,
+  Hunt,
+  AvatarSpec,
 } from '../types';
 
 /**
@@ -101,6 +103,9 @@ class TidelineDB extends Dexie {
   peers!: Table<PeerRow, string>;
   deliveries!: Table<DeliveryRow, [string, string]>;
 
+  hunts!: Table<Hunt, string>;
+  avatarSpecs!: Table<AvatarSpec, string>;
+
   constructor() {
     super('tideline');
     this.version(1).stores({
@@ -161,6 +166,17 @@ class TidelineDB extends Dexie {
     this.version(6).stores({
       reactions: '&id, messageId, by',
       deliveries: '&[messageId+fingerprint], messageId',
+    });
+    // v7 — content tables for hunts and composed avatars.
+    //
+    // Both are pulled from the backend like `places` and `challenges`, not
+    // written by gameplay: hunt *progress* is a ChallengeCompletion, and an
+    // AvatarSpec is a single-writer file. Nothing here joins the p2p gossip
+    // set, so a phone still on v6 stays a good citizen mid-cruise — it relays
+    // everyone's completions untouched and simply doesn't render the hunts.
+    this.version(7).stores({
+      hunts: '&id, activeFrom, activeUntil',
+      avatarSpecs: '&memberId',
     });
   }
 }

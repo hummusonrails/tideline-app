@@ -1,3 +1,6 @@
+import { CrewAvatar } from './CrewAvatar';
+import { useAvatarSpec, useTierFor } from '../lib/avatar';
+
 interface AvatarProps {
   /** Stable token used to pick a deterministic color gradient. */
   seed: string;
@@ -7,13 +10,19 @@ interface AvatarProps {
   size?: number;
   alt?: string;
   className?: string;
+  /**
+   * Opt out of the composed crew avatar (the slot picker, where nobody is
+   * signed in yet and there's no spec to read).
+   */
+  noCrew?: boolean;
 }
 
 /**
- * Renders the user-provided photo if any, else a deterministic gradient
- * placeholder. The gradient is keyed by `seed` (kept stable across renders);
- * the displayed letter is the first character of `displayName` when present,
- * else the first character of `seed`.
+ * One member, drawn.
+ *
+ * Fallback chain, highest first: an uploaded photo, then the composed crew
+ * avatar, then the deterministic gradient initial. The gradient is keyed by
+ * `seed` so an un-decorated member still looks like themselves everywhere.
  */
 export function Avatar({
   seed,
@@ -22,8 +31,12 @@ export function Avatar({
   size = 40,
   alt = '',
   className = '',
+  noCrew = false,
 }: AvatarProps) {
+  const spec = useAvatarSpec(noCrew ? null : seed);
+  const tier = useTierFor(noCrew ? null : seed);
   const sz = { width: size, height: size };
+
   if (src) {
     return (
       <img
@@ -34,6 +47,19 @@ export function Avatar({
       />
     );
   }
+
+  if (spec) {
+    return (
+      <CrewAvatar
+        spec={spec}
+        size={size}
+        tier={tier}
+        className={className}
+        alt={alt || displayName || 'Crew avatar'}
+      />
+    );
+  }
+
   const initial = (displayName ?? seed).charAt(0).toUpperCase();
   return (
     <div

@@ -2,11 +2,11 @@ import { db } from './db';
 import { enqueue } from './sync';
 import { uid } from './uuid';
 import { textToBase64 } from './github';
-import { pointEventPath } from './paths';
+import { completionPath, pointEventPath } from './paths';
 import { DEFAULT_CONFIG, countEventsOnDate } from './points';
 import { todayYMD } from './time';
 import { tripStartDate } from './trip';
-import type { PointEvent, PointReason, MemberId } from '../types';
+import type { ChallengeCompletion, PointEvent, PointReason, MemberId } from '../types';
 
 /**
  * Mint a point event: persist locally and enqueue the remote write.
@@ -62,6 +62,77 @@ export async function awardPoints(opts: {
     },
   });
   return event;
+}
+
+/**
+ * Record a completion whose challenge id is *derived*, not authored.
+ *
+ * Hunt-for rows already did this by hand; hunt stages, easter eggs, live
+ * moments and prediction payouts all need the same thing, so it lives here
+ * once. The shape is the trick that keeps this whole feature set free of new
+ * sync surface: a synthesised id rides the existing completions collection,
+ * which already syncs over Git, gossips over P2P, and dedups by record id.
+ *
+ * Two properties matter and are both load-bearing:
+ *
+ * - **Deterministic id.** Every device derives the same `challengeId` from the
+ *   same content, so the write-time guard below sees a peer's completion as
+ *   the same act rather than a second one.
+ * - **Self-mint only.** Points go to `by`, never to someone else. A device
+ *   that minted on a peer's behalf would double-award the moment both devices
+ *   observed the same trigger.
+ *
+ * Returns the completion, or null if this member already had one.
+ */
+export async function completeSynthetic(opts: {
+  challengeId: string;
+  by: MemberId;
+  points: number;
+  commitMessage: string;
+  proofPhotoId?: string;
+  /** Free-form small ints kept alongside the completion (e.g. hint usage). */
+  marks?: number[];
+  reason?: PointReason;
+}): Promise<ChallengeCompletion | null> {
+  // Guard at the write, not just in the UI: a double tap can outrun the live
+  // query that disabled the button, and each pass would mint its own award.
+  const already = await db.completions
+    .where('challengeId').equals(opts.challengeId)
+    .filter((c) => c.by === opts.by)
+    .count();
+  if (already > 0) return null;
+
+  const now = new Date();
+  const completion: ChallengeCompletion = {
+    id: uid(),
+    challengeId: opts.challengeId,
+    by: opts.by,
+    completedAt: now.toISOString(),
+    proofPhotoId: opts.proofPhotoId,
+    triviaAnswers: opts.marks,
+    awardedPoints: opts.points,
+  };
+  await db.completions.put(completion);
+  await enqueue({
+    id: `comp-${completion.id}`,
+    enqueuedAt: now.toISOString(),
+    op: {
+      kind: 'put-file',
+      path: completionPath(completion),
+      contentBase64: textToBase64(JSON.stringify(completion)),
+      commitMessage: opts.commitMessage.slice(0, 60),
+    },
+  });
+  if (opts.points > 0) {
+    await awardPoints({
+      to: opts.by,
+      by: opts.by,
+      amount: opts.points,
+      reason: opts.reason ?? 'challenge',
+      refId: opts.challengeId,
+    });
+  }
+  return completion;
 }
 
 export const EARN = DEFAULT_CONFIG.earn;

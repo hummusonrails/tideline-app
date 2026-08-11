@@ -65,6 +65,18 @@ export function eventIdFromPath(path: string): string {
 }
 
 /**
+ * A member's composed avatar.
+ *
+ * Single-writer and mutable in place, like `profiles/<id>.json`: only the
+ * member themselves ever writes it, so rewriting the same path can't clobber
+ * anyone else's work. The `.avatar.json` suffix keeps it clear of the
+ * `avatars/<id>.jpg` uploaded-photo route.
+ */
+export function avatarSpecPath(memberId: MemberId): string {
+  return `avatars/${memberId}.avatar.json`;
+}
+
+/**
  * Web Push subscription for one device. Keyed by the p2p device fingerprint
  * so re-subscribing on the same device overwrites in place instead of
  * accumulating dead endpoints.

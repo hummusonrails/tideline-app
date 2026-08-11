@@ -25,7 +25,6 @@ import { prettyDate } from '../lib/time';
 import {
   encodePoll,
   parsePoll,
-  parseVote,
   tallyVotes,
   voteEmoji,
   votePercent,
@@ -33,8 +32,32 @@ import {
   MIN_OPTIONS,
   type Poll,
 } from '../lib/poll';
-import { Send, BookOpen, MessageSquare, SmilePlus, BarChart3 } from 'lucide-react';
-import type { Message, MemberId, Reaction } from '../types';
+import {
+  encodePrediction,
+  parsePrediction,
+  predictionAsPoll,
+  isLocked,
+  outcomeEmoji,
+  settledOutcome,
+  myGuess,
+  didWin,
+  predictionPayoutId,
+  encodeDuel,
+  parseDuel,
+  duelWinEmoji,
+  duelWinner,
+  isDuelAccepted,
+  duelPayoutId,
+  isReservedEmoji,
+  DUEL_ACCEPT,
+  DUEL_POINTS,
+  PREDICTION_POINTS,
+  type Prediction,
+  type Duel,
+} from '../lib/predictions';
+import { completeSynthetic } from '../lib/award';
+import { Send, BookOpen, MessageSquare, SmilePlus, BarChart3, Dice5, Swords } from 'lucide-react';
+import type { Message, MemberId, Reaction, Profile } from '../types';
 
 const REACTIONS = ['❤️', '😂', '😮', '🔥', '👍', '🙏'];
 
@@ -63,6 +86,8 @@ export function Chat() {
   const [reactingTo, setReactingTo] = useState<string | null>(null);
   const [composerFocused, setComposerFocused] = useState(false);
   const [composingPoll, setComposingPoll] = useState(false);
+  const [composingPrediction, setComposingPrediction] = useState(false);
+  const [composingDuel, setComposingDuel] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const firstScrollRef = useRef(true);
@@ -147,6 +172,8 @@ export function Chat() {
     nearBottomRef.current = true;
   }
 
+  usePayouts(myId, messages, reactionEvents, profiles);
+
   return (
     <Page eyebrow="Family" title="Chat" avatarSeed={myId} avatarDisplayName={myProfile?.displayName} avatarSrc={myAvatar}>
       {/* Bottom padding clears the fixed composer, which would otherwise sit
@@ -157,12 +184,14 @@ export function Chat() {
           const isJournal = m.kind === 'journal';
           const myEvents = reactionsByMessage.get(m.id) ?? [];
           const standing = effectiveReactions(m, myEvents);
-          // Votes share the reaction store, so they'd otherwise render as
-          // literal "vote:0" chips under every poll.
+          // Votes, outcome marks and duel calls all share the reaction store,
+          // so they'd otherwise render as literal "vote:0" chips.
           const reactionEntries = Object.entries(standing).filter(
-            ([, emoji]) => parseVote(emoji) === null,
+            ([, emoji]) => !isReservedEmoji(emoji),
           );
-          const poll = m.kind === 'poll' ? parsePoll(m.body) : null;
+          const prediction = m.kind === 'poll' ? parsePrediction(m.body) : null;
+          const poll = m.kind === 'poll' && !prediction ? parsePoll(m.body) : null;
+          const duel = m.kind !== 'poll' ? parseDuel(m.body) : null;
           const prev = i > 0 ? messages[i - 1] : null;
           const newDay = !prev || ymd(prev.sentAt) !== ymd(m.sentAt);
           return (
@@ -186,7 +215,56 @@ export function Chat() {
                     itself be a button — nested buttons are invalid and break
                     tap handling. The accepted trade-off: polls take votes but
                     not emoji reactions. */}
-                {poll ? (
+                {prediction ? (
+                  <div
+                    className={`text-left px-4 py-2.5 text-[15px] leading-snug ${
+                      mine
+                        ? 'bg-ink-900 text-white rounded-3xl rounded-br-md'
+                        : 'glass text-ink-900 rounded-3xl rounded-bl-md'
+                    }`}
+                  >
+                    <PredictionBody
+                      prediction={prediction}
+                      message={m}
+                      events={myEvents}
+                      profiles={profiles}
+                      myId={myId}
+                      mine={mine}
+                      onVote={(i) => void voteOnPoll(m, myId, i, standing, myEvents)}
+                      onSettle={(i) =>
+                        void reactToMessage(m, myId, outcomeEmoji(i), standing, myEvents)
+                      }
+                    />
+                    <span className={`block text-[11px] mt-2 tabular ${mine ? 'text-white/60' : 'text-ink-600'}`}>
+                      {clockTime(m.sentAt)}
+                    </span>
+                  </div>
+                ) : duel ? (
+                  <div
+                    className={`text-left px-4 py-2.5 text-[15px] leading-snug ${
+                      mine
+                        ? 'bg-ink-900 text-white rounded-3xl rounded-br-md'
+                        : 'glass text-ink-900 rounded-3xl rounded-bl-md'
+                    }`}
+                  >
+                    <DuelBody
+                      duel={duel}
+                      message={m}
+                      events={myEvents}
+                      profiles={profiles}
+                      byId={byId}
+                      myId={myId}
+                      mine={mine}
+                      onAccept={() => void reactToMessage(m, myId, DUEL_ACCEPT, standing, myEvents)}
+                      onCall={(winner) =>
+                        void reactToMessage(m, myId, duelWinEmoji(winner), standing, myEvents)
+                      }
+                    />
+                    <span className={`block text-[11px] mt-2 tabular ${mine ? 'text-white/60' : 'text-ink-600'}`}>
+                      {clockTime(m.sentAt)}
+                    </span>
+                  </div>
+                ) : poll ? (
                   <div
                     className={`text-left px-4 py-2.5 text-[15px] leading-snug ${
                       mine
@@ -324,6 +402,24 @@ export function Chat() {
             >
               <BarChart3 size={16} />
             </button>
+            <button
+              type="button"
+              onClick={() => setComposingPrediction(true)}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/70 text-ink-700 shrink-0"
+              aria-label="New prediction"
+              title="New prediction"
+            >
+              <Dice5 size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setComposingDuel(true)}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/70 text-ink-700 shrink-0"
+              aria-label="New duel"
+              title="New duel"
+            >
+              <Swords size={16} />
+            </button>
             {/* A textarea, not an input: journal entries need 30+ words to
                 score, which is more than one line of typing. */}
             <textarea
@@ -367,6 +463,29 @@ export function Chat() {
           onCreate={(q, opts) => {
             setComposingPoll(false);
             void sendPoll(myId, q, opts);
+            nearBottomRef.current = true;
+          }}
+        />
+      )}
+
+      {composingPrediction && (
+        <PredictionComposer
+          onCancel={() => setComposingPrediction(false)}
+          onCreate={(q, opts, lockISO) => {
+            setComposingPrediction(false);
+            void sendPrediction(myId, q, opts, lockISO);
+            nearBottomRef.current = true;
+          }}
+        />
+      )}
+
+      {composingDuel && (
+        <DuelComposer
+          candidates={profiles.filter((p) => p.id !== myId)}
+          onCancel={() => setComposingDuel(false)}
+          onCreate={(text, target) => {
+            setComposingDuel(false);
+            void sendDuel(myId, text, target);
             nearBottomRef.current = true;
           }}
         />
@@ -432,6 +551,243 @@ function PollBody({
           ? 'No votes yet'
           : `${tally.total} vote${tally.total === 1 ? '' : 's'}${tally.mine === null ? ' · tap to vote' : ''}`}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Pay out settled predictions and duels — for this member only.
+ *
+ * Self-minting is the rule that makes this safe under gossip: every device
+ * evaluates the same records and awards nobody but its own signed-in member,
+ * so two phones seeing the same result can't produce two payments. The write
+ * itself dedups on a deterministic id, so re-running this on every render pass
+ * is inert after the first time.
+ *
+ * It lives on Chat because that's where the records are already loaded, and
+ * because a payout you find out about by opening the chat is a payout you find
+ * out about at the moment it's interesting.
+ */
+function usePayouts(
+  myId: MemberId,
+  messages: readonly Message[],
+  events: readonly Reaction[],
+  profiles: readonly Profile[],
+) {
+  useEffect(() => {
+    if (profiles.length === 0) return;
+    let cancelled = false;
+
+    void (async () => {
+      for (const m of messages) {
+        if (cancelled) return;
+
+        if (m.kind === 'poll' && parsePrediction(m.body)) {
+          if (didWin({ message: m, events, profiles, me: myId })) {
+            await completeSynthetic({
+              challengeId: predictionPayoutId(m.id),
+              by: myId,
+              points: PREDICTION_POINTS,
+              commitMessage: 'called it',
+            });
+          }
+          continue;
+        }
+
+        const duel = parseDuel(m.body);
+        if (duel && duelWinner(m, events, profiles) === myId) {
+          await completeSynthetic({
+            challengeId: duelPayoutId(m.id),
+            by: myId,
+            points: DUEL_POINTS,
+            commitMessage: 'won a duel',
+          });
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [myId, messages, events, profiles]);
+}
+
+/**
+ * A prediction bubble: vote until the lock, then wait for a judge, then find
+ * out whether you called it.
+ */
+function PredictionBody({
+  prediction, message, events, profiles, myId, mine, onVote, onSettle,
+}: {
+  prediction: Prediction;
+  message: Message;
+  events: readonly Reaction[];
+  profiles: readonly Profile[];
+  myId: MemberId;
+  mine: boolean;
+  onVote: (optionIndex: number) => void;
+  onSettle: (optionIndex: number) => void;
+}) {
+  // Re-render on the minute so the lock closes without needing a tap.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const poll = predictionAsPoll(prediction);
+  const tally = tallyVotes(message, events, poll, myId);
+  const locked = isLocked(prediction, now);
+  const outcome = settledOutcome(message, events, profiles);
+  const iAmParent = profiles.find((p) => p.id === myId)?.role === 'parent';
+  const guess = myGuess(message, events, myId);
+  const won = outcome !== null && guess === outcome;
+
+  return (
+    <div className="min-w-[220px]">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider opacity-70 mb-1.5">
+        <Dice5 size={11} /> Prediction
+      </div>
+      <div className="font-medium mb-2">{prediction.question}</div>
+      <div className="space-y-1.5">
+        {poll.options.map((opt, i) => {
+          const picked = tally.mine === i;
+          const isOutcome = outcome === i;
+          const pct = votePercent(tally.counts[i], tally.total);
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={locked}
+              onClick={() => onVote(i)}
+              aria-pressed={picked}
+              className={`relative w-full overflow-hidden rounded-2xl px-3 py-2 text-left text-sm transition ${
+                mine ? 'bg-white/15' : 'bg-white/60'
+              } ${picked ? 'ring-1 ring-ocean' : ''} ${isOutcome ? 'ring-2 ring-sage-400' : ''} ${
+                locked ? 'cursor-default' : ''
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`absolute inset-y-0 left-0 ${mine ? 'bg-white/20' : 'bg-sage-200/70'} transition-[width] duration-300`}
+                style={{ width: `${locked || outcome !== null ? pct : 0}%` }}
+              />
+              <span className="relative flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate">
+                  {isOutcome && '✅ '}
+                  {opt}
+                </span>
+                {(locked || outcome !== null) && (
+                  <span className="tabular text-xs opacity-80 shrink-0">{tally.counts[i]}</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="text-[11px] opacity-70 mt-1.5">
+        {outcome !== null
+          ? won
+            ? `You called it · +${PREDICTION_POINTS}`
+            : guess === null
+              ? 'Result is in'
+              : 'Not this time'
+          : locked
+            ? 'Locked — waiting for the judges'
+            : `Locks ${clockTime(prediction.lockISO)}${tally.mine === null ? ' · tap to guess' : ''}`}
+      </div>
+
+      {/* Only a parent can settle it, and only once it's locked — calling a
+          result while people can still change their guess defeats the point. */}
+      {iAmParent && locked && outcome === null && (
+        <div className="mt-2 pt-2 border-t border-white/20">
+          <div className="text-[11px] opacity-70 mb-1">What actually happened?</div>
+          <div className="flex flex-wrap gap-1">
+            {poll.options.map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onSettle(i)}
+                className={`text-[11px] rounded-full px-2.5 py-1 ${
+                  mine ? 'bg-white/20' : 'bg-white/70 text-ink-900'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A duel bubble: challenge, accept, and a parent's call. */
+function DuelBody({
+  duel, message, events, profiles, byId, myId, mine, onAccept, onCall,
+}: {
+  duel: Duel;
+  message: Message;
+  events: readonly Reaction[];
+  profiles: readonly Profile[];
+  byId: Record<string, Profile>;
+  myId: MemberId;
+  mine: boolean;
+  onAccept: () => void;
+  onCall: (winner: MemberId) => void;
+}) {
+  const accepted = isDuelAccepted(message, events, duel.target);
+  const winner = duelWinner(message, events, profiles);
+  const iAmParent = profiles.find((p) => p.id === myId)?.role === 'parent';
+  const targetName = byId[duel.target]?.displayName ?? 'them';
+  const challengerName = byId[message.from]?.displayName ?? 'someone';
+
+  return (
+    <div className="min-w-[220px]">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider opacity-70 mb-1.5">
+        <Swords size={11} /> Duel
+      </div>
+      <div className="font-medium">{duel.text}</div>
+      <div className="text-[11px] opacity-70 mt-1">
+        {challengerName} vs {targetName}
+      </div>
+
+      {winner ? (
+        <div className={`mt-2 rounded-2xl px-3 py-1.5 text-sm ${mine ? 'bg-white/20' : 'bg-sage-200 text-sage-700'}`}>
+          🏆 {byId[winner]?.displayName ?? 'Winner'} takes it
+        </div>
+      ) : !accepted && myId === duel.target ? (
+        <button
+          type="button"
+          onClick={onAccept}
+          className={`mt-2 w-full rounded-full py-2 text-sm font-medium ${
+            mine ? 'bg-white/20' : 'bg-ink-900 text-white'
+          }`}
+        >
+          Accept ⚔️
+        </button>
+      ) : !accepted ? (
+        <div className="text-[11px] opacity-70 mt-2">Waiting for {targetName} to accept…</div>
+      ) : iAmParent ? (
+        <div className="mt-2 pt-2 border-t border-white/20">
+          <div className="text-[11px] opacity-70 mb-1">Who won?</div>
+          <div className="flex flex-wrap gap-1">
+            {[message.from, duel.target].map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => onCall(id)}
+                className={`text-[11px] rounded-full px-2.5 py-1 ${
+                  mine ? 'bg-white/20' : 'bg-white/70 text-ink-900'
+                }`}
+              >
+                {byId[id]?.displayName ?? id.slice(0, 4)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-[11px] opacity-70 mt-2">On! Waiting on a judge to call it.</div>
+      )}
     </div>
   );
 }
@@ -502,6 +858,220 @@ function PollComposer({
   );
 }
 
+/** Ready-made predictions, so opening a book takes one tap and not a paragraph. */
+const PREDICTION_PRESETS: { q: string; options: string[] }[] = [
+  { q: 'Do we see a whale today?', options: ['Yes', 'No'] },
+  { q: 'Rain or shine when we get off?', options: ['Rain', 'Shine'] },
+  { q: 'Who spots the first eagle?', options: ['A grown-up', 'A kid'] },
+  { q: 'Do we arrive early, on time, or late?', options: ['Early', 'On time', 'Late'] },
+];
+
+/** How long a prediction stays open, offered as one-tap choices. */
+const LOCK_CHOICES: { label: string; minutes: number }[] = [
+  { label: '30 min', minutes: 30 },
+  { label: '2 hours', minutes: 120 },
+  { label: 'End of day', minutes: 8 * 60 },
+];
+
+function PredictionComposer({
+  onCancel, onCreate,
+}: {
+  onCancel: () => void;
+  onCreate: (question: string, options: string[], lockISO: string) => void;
+}) {
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['Yes', 'No']);
+  const [lockMinutes, setLockMinutes] = useState(LOCK_CHOICES[1].minutes);
+
+  const filled = options.map((o) => o.trim()).filter(Boolean);
+  const canCreate = question.trim().length > 0 && filled.length >= MIN_OPTIONS;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+      <div
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-medium">🎲 New prediction</div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {PREDICTION_PRESETS.map((p) => (
+            <button
+              key={p.q}
+              type="button"
+              onClick={() => { setQuestion(p.q); setOptions(p.options); }}
+              className="text-[11px] rounded-full bg-white/70 ring-1 ring-white/80 px-2.5 py-1 text-ink-700"
+            >
+              {p.q}
+            </button>
+          ))}
+        </div>
+
+        <input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="What are we calling?"
+          className="w-full rounded-2xl bg-white/70 px-3 py-2.5 text-sm outline-none ring-1 ring-white/80 focus:ring-ocean/40"
+        />
+        {options.map((opt, i) => (
+          <input
+            key={i}
+            value={opt}
+            onChange={(e) => setOptions((prev) => prev.map((o, j) => (j === i ? e.target.value : o)))}
+            placeholder={`Option ${i + 1}`}
+            className="w-full rounded-2xl bg-white/70 px-3 py-2 text-sm outline-none ring-1 ring-white/80 focus:ring-ocean/40"
+          />
+        ))}
+        {options.length < MAX_OPTIONS && (
+          <button
+            type="button"
+            onClick={() => setOptions((prev) => [...prev, ''])}
+            className="text-xs text-ocean font-semibold"
+          >
+            + Add option
+          </button>
+        )}
+
+        <div>
+          <div className="text-xs text-ink-600 mb-1.5">Guesses lock in</div>
+          <div className="flex gap-1.5">
+            {LOCK_CHOICES.map((c) => (
+              <button
+                key={c.minutes}
+                type="button"
+                onClick={() => setLockMinutes(c.minutes)}
+                className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  lockMinutes === c.minutes ? 'bg-ink-900 text-white' : 'bg-white/70 text-ink-700'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-full bg-white/70 text-ink-700 text-sm font-medium py-2.5"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!canCreate}
+            onClick={() =>
+              onCreate(
+                question,
+                filled,
+                new Date(Date.now() + lockMinutes * 60_000).toISOString(),
+              )
+            }
+            className="flex-1 rounded-full bg-ink-900 text-white text-sm font-medium py-2.5 disabled:opacity-40"
+          >
+            Open the book
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DUEL_PRESETS = [
+  'First eagle photo wins',
+  'First salmon photo wins',
+  'Most hunt-for items ticked today',
+  'Best towel-animal recreation',
+  'First to find today’s secret',
+  'Longest wildlife video',
+  'First to 20 points today',
+  'Best pun in a photo caption',
+];
+
+function DuelComposer({
+  candidates, onCancel, onCreate,
+}: {
+  candidates: readonly Profile[];
+  onCancel: () => void;
+  onCreate: (text: string, target: MemberId) => void;
+}) {
+  const [text, setText] = useState('');
+  const [target, setTarget] = useState<MemberId | null>(candidates[0]?.id ?? null);
+  const canCreate = text.trim().length > 0 && !!target;
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+      <div
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-medium">⚔️ Challenge someone</div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {DUEL_PRESETS.map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setText(d)}
+              className="text-[11px] rounded-full bg-white/70 ring-1 ring-white/80 px-2.5 py-1 text-ink-700"
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="What's the contest?"
+          className="w-full rounded-2xl bg-white/70 px-3 py-2.5 text-sm outline-none ring-1 ring-white/80 focus:ring-ocean/40"
+        />
+
+        <div>
+          <div className="text-xs text-ink-600 mb-1.5">Against</div>
+          <div className="flex flex-wrap gap-1.5">
+            {candidates.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setTarget(p.id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  target === p.id ? 'bg-ink-900 text-white' : 'bg-white/70 text-ink-700'
+                }`}
+              >
+                {p.displayName}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="text-[11px] text-ink-500">
+          A grown-up calls the winner. Winner takes +{DUEL_POINTS}.
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-full bg-white/70 text-ink-700 text-sm font-medium py-2.5"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!canCreate}
+            onClick={() => target && onCreate(text, target)}
+            className="flex-1 rounded-full bg-ink-900 text-white text-sm font-medium py-2.5 disabled:opacity-40"
+          >
+            Throw down
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Cast or change a vote.
  *
@@ -557,6 +1127,63 @@ async function sendPoll(from: MemberId, question: string, options: string[]) {
       path: messagePath(msg),
       contentBase64: textToBase64(JSON.stringify(msg)),
       commitMessage: 'post poll',
+    },
+  });
+}
+
+/**
+ * Post a prediction. Kind stays 'poll' on purpose: a build that has never
+ * heard of predictions then renders it as an ordinary poll rather than as a
+ * message full of markers.
+ */
+async function sendPrediction(
+  from: MemberId,
+  question: string,
+  options: string[],
+  lockISO: string,
+) {
+  const now = new Date();
+  const id = uid();
+  const msg: Message = {
+    id,
+    from,
+    sentAt: now.toISOString(),
+    body: encodePrediction(question, options, lockISO),
+    kind: 'poll',
+  };
+  await db.messages.put(msg);
+  await enqueue({
+    id,
+    enqueuedAt: now.toISOString(),
+    op: {
+      kind: 'put-file',
+      path: messagePath(msg),
+      contentBase64: textToBase64(JSON.stringify(msg)),
+      commitMessage: 'open a prediction',
+    },
+  });
+}
+
+/** Post a duel. A plain message, so older builds show the challenge text. */
+async function sendDuel(from: MemberId, text: string, target: MemberId) {
+  const now = new Date();
+  const id = uid();
+  const msg: Message = {
+    id,
+    from,
+    sentAt: now.toISOString(),
+    body: encodeDuel(text, target),
+    kind: 'message',
+  };
+  await db.messages.put(msg);
+  await enqueue({
+    id,
+    enqueuedAt: now.toISOString(),
+    op: {
+      kind: 'put-file',
+      path: messagePath(msg),
+      contentBase64: textToBase64(JSON.stringify(msg)),
+      commitMessage: 'throw down a duel',
     },
   });
 }
@@ -623,11 +1250,12 @@ async function reactToMessage(
   // First-ever reaction to this message only, and never to your own — so
   // retracting and re-adding can't be farmed for points.
   //
-  // Poll votes ride this same path but must never pay out: a poll with four
-  // options would otherwise be four taps of free points, and voting should be
-  // about the decision, not the score.
-  const isVote = parseVote(nextEmoji) !== null;
-  if (!alreadyReacted && nextEmoji !== null && !isVote && message.from !== by) {
+  // Every mechanic that rides the reaction store must be excluded here: poll
+  // votes, prediction guesses and outcome marks, duel accepts and calls. A
+  // four-option poll would otherwise be four taps of free points, and marking
+  // who won a duel should not itself pay.
+  const isMechanic = isReservedEmoji(nextEmoji);
+  if (!alreadyReacted && nextEmoji !== null && !isMechanic && message.from !== by) {
     await awardPoints({ to: by, by, amount: EARN.reaction, reason: 'reaction', refId: message.id, dailyCap: CAPS.reactionPerDay });
   }
 }

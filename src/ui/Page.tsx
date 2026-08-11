@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Avatar } from './Avatar';
 import { db } from '../lib/db';
 import { useNetState } from '../lib/net';
+import { useEggAnchor } from '../lib/eggRuntime';
 
 interface PageProps {
   title?: string;
@@ -28,6 +29,11 @@ export function Page({
   const navigate = useNavigate();
   const pending = useLiveQuery(() => db.outbox.count()) ?? 0;
   const atSea = useNetState((s) => s.state) === 'no-internet';
+  // Both header controls double as egg anchors. Their real behaviour is
+  // untouched: the tap counter runs alongside the navigation, not instead of
+  // it, so nobody has to choose between the joke and the button.
+  const avatarEgg = useEggAnchor('header-avatar');
+  const chipEgg = useEggAnchor('sea-chip');
   return (
     <div className="pt-[max(env(safe-area-inset-top),1rem)] px-4">
       <header className="flex items-center justify-between mb-5">
@@ -35,7 +41,8 @@ export function Page({
           {avatarSeed && (
             <button
               type="button"
-              onClick={() => navigate('/profile')}
+              {...avatarEgg}
+              onClick={() => { avatarEgg.onClick(); navigate('/profile'); }}
               className="rounded-full active:scale-95 transition"
               aria-label="Your profile"
             >
@@ -50,13 +57,14 @@ export function Page({
         {showBell && (
           <button
             type="button"
+            {...chipEgg}
             // At sea, retrying is pointless and the useful action is to go
             // sync with someone face to face.
-            onClick={() =>
-              atSea
-                ? navigate('/devices')
-                : window.dispatchEvent(new CustomEvent('tideline:outbox-enqueued'))
-            }
+            onClick={() => {
+              chipEgg.onClick();
+              if (atSea) navigate('/devices');
+              else window.dispatchEvent(new CustomEvent('tideline:outbox-enqueued'));
+            }}
             className="relative grid h-10 w-10 place-items-center rounded-full glass"
             aria-label={syncChipLabel(atSea, pending)}
             title={syncChipLabel(atSea, pending)}

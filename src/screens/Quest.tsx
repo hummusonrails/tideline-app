@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
@@ -21,13 +22,28 @@ import { todayYMD } from '../lib/time';
 import { enqueue } from '../lib/sync';
 import { awardPoints, EARN, CAPS } from '../lib/award';
 import { uid } from '../lib/uuid';
-import { completionPath, photoBinaryPath, photoSidecarPath } from '../lib/paths';
+import { completionPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
-import { compressForPost, blobToBase64 } from '../lib/compress';
+import { compressForPost } from '../lib/compress';
+import { postPhoto } from '../lib/photoPost';
+import {
+  huntProgress,
+  isHuntVisible,
+  sortHunts,
+  completedStageCount,
+  isHuntComplete,
+  type HuntContext,
+  type StageState,
+} from '../lib/hunts';
+import {
+  canSendKudos, kudosRemaining, goalProgress, KUDOS_POINTS, MAX_NOTE_LENGTH,
+} from '../lib/kudos';
 import { Camera, CheckCircle2, Check, X } from 'lucide-react';
-import type { Challenge, ChallengeCompletion, Photo, Trivia, MemberId } from '../types';
+import type {
+  Challenge, ChallengeCompletion, Trivia, MemberId, Hunt, PointEvent, CrewGoal,
+} from '../types';
 
-type Tab = 'leaderboard' | 'challenges' | 'prizes';
+type Tab = 'leaderboard' | 'challenges' | 'hunts' | 'prizes';
 
 export function Quest() {
   const session = useSession();
@@ -35,27 +51,173 @@ export function Quest() {
   const myProfile = useMyProfile();
   const myAvatar = useAvatarSrc(myId);
   const [tab, setTab] = useState<Tab>('leaderboard');
+  const newHunts = useNewHuntCount(myId);
 
   return (
     <Page eyebrow="Quest" title="Compete & earn" avatarSeed={myId} avatarDisplayName={myProfile?.displayName} avatarSrc={myAvatar}>
-      <div className="flex gap-2">
+      {/* Four pills no longer fit a phone width — let the row scroll rather
+          than shrinking the labels into initials. */}
+      <div className="flex gap-2 overflow-x-auto scroll-clean -mx-4 px-4 pb-1">
         <PillButton active={tab === 'leaderboard'} onClick={() => setTab('leaderboard')}>Leaderboard</PillButton>
         <PillButton active={tab === 'challenges'} onClick={() => setTab('challenges')}>Challenges</PillButton>
+        <PillButton active={tab === 'hunts'} onClick={() => setTab('hunts')} className="relative shrink-0">
+          Hunts
+          {newHunts > 0 && (
+            <span className="ml-1 grid h-5 min-w-5 place-items-center rounded-full bg-coral px-1 text-[10px] font-semibold text-white">
+              {newHunts}
+            </span>
+          )}
+        </PillButton>
         <PillButton active={tab === 'prizes'} onClick={() => setTab('prizes')}>Prizes</PillButton>
       </div>
       {tab === 'leaderboard' && <Leaderboard myId={myId} />}
       {tab === 'challenges' && <Challenges myId={myId} />}
+      {tab === 'hunts' && <Hunts myId={myId} />}
       {tab === 'prizes' && <Prizes myId={myId} />}
     </Page>
   );
 }
 
-function LeaderboardRow({ rank, memberId, name, points, children }: {
-  rank: number; memberId: string; name: string; points: number; children: React.ReactNode;
+/**
+ * Live hunt context, shared by the Quest tab and the Today card.
+ *
+ * Presence comes from today's itinerary rows, never from geolocation — see
+ * the note in lib/hunts.ts.
+ */
+function useHuntContext(myId: MemberId): { hunts: Hunt[]; ctx: HuntContext } {
+  const today = todayYMD();
+  const hunts = useLiveQuery(() => db.hunts.toArray(), []) ?? [];
+  const profiles = useLiveQuery(() => db.profiles.toArray(), []) ?? [];
+  const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
+  const todayItinerary =
+    useLiveQuery(() => db.itinerary.where('date').equals(today).toArray(), [today]) ?? [];
+
+  const ctx = useMemo<HuntContext>(
+    () => ({ today, now: new Date(), todayItinerary, profiles, completions, member: myId }),
+    [today, todayItinerary, profiles, completions, myId],
+  );
+  return { hunts, ctx };
+}
+
+/** Visible hunts with an unsolved, unlocked stage waiting. */
+export function useOpenHunts(myId: MemberId): { hunt: Hunt; states: StageState[] }[] {
+  const { hunts, ctx } = useHuntContext(myId);
+  return useMemo(() => {
+    const visible = hunts
+      .filter((h) => isHuntVisible(h, ctx))
+      .map((hunt) => ({ hunt, states: huntProgress(hunt, ctx) }));
+    return sortHunts(visible).filter(({ states }) => states.some((s) => s.status === 'open'));
+  }, [hunts, ctx]);
+}
+
+/** Count of visible hunts nobody has touched yet — the "look here" badge. */
+function useNewHuntCount(myId: MemberId): number {
+  const { hunts, ctx } = useHuntContext(myId);
+  return useMemo(
+    () =>
+      hunts.filter(
+        (h) =>
+          isHuntVisible(h, ctx) &&
+          huntProgress(h, ctx).every((s) => s.status !== 'done') &&
+          huntProgress(h, ctx).some((s) => s.status === 'open'),
+      ).length,
+    [hunts, ctx],
+  );
+}
+
+function Hunts({ myId }: { myId: MemberId }) {
+  const navigate = useNavigate();
+  const { hunts, ctx } = useHuntContext(myId);
+
+  const visible = useMemo(() => {
+    const rows = hunts
+      .filter((h) => isHuntVisible(h, ctx))
+      .map((hunt) => ({ hunt, states: huntProgress(hunt, ctx) }));
+    return sortHunts(rows);
+  }, [hunts, ctx]);
+
+  if (visible.length === 0) {
+    return (
+      <GlassCard className="text-ink-600 text-sm text-center">
+        No hunts open right now. They appear where — and when — they're meant to. 🗺️
+      </GlassCard>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {visible.map(({ hunt, states }) => {
+        const done = completedStageCount(states);
+        const finished = isHuntComplete(states);
+        const locked = !finished && !states.some((s) => s.status === 'open');
+        const lockedState = states.find((s) => s.status === 'locked');
+        return (
+          <button
+            key={hunt.id}
+            type="button"
+            onClick={() => navigate(`/hunt/${hunt.id}`)}
+            className="w-full text-left active:scale-[0.99] transition"
+          >
+            <GlassCard className="flex items-center gap-3">
+              <div className="text-2xl shrink-0">{hunt.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{hunt.title}</div>
+                <div className="text-xs text-ink-600 truncate">
+                  {finished
+                    ? 'Complete ✓'
+                    : locked && lockedState?.status === 'locked'
+                      ? lockedState.reason
+                      : `Stage ${done + 1} of ${hunt.stages.length} waiting`}
+                </div>
+                <div className="mt-2 h-1.5 rounded-full bg-white/50 overflow-hidden">
+                  <div
+                    className="h-full bg-sage-400 rounded-full"
+                    style={{ width: `${Math.round((done / hunt.stages.length) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              {hunt.team && hunt.team !== 'all' && (
+                <span className="text-[10px] uppercase tracking-wide text-ink-500 shrink-0">
+                  {hunt.team}
+                </span>
+              )}
+            </GlassCard>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LeaderboardRow({ rank, memberId, name, points, children, onGift }: {
+  rank: number; memberId: string; name: string; points: number;
+  children: React.ReactNode;
+  /** Long-press opens the kudos sheet. Absent on your own row. */
+  onGift?: () => void;
 }) {
   const avatar = useAvatarSrc(memberId);
+  const hold = useRef<number | null>(null);
+
+  const start = () => {
+    if (!onGift) return;
+    hold.current = window.setTimeout(onGift, 550);
+  };
+  const cancel = () => {
+    if (hold.current !== null) {
+      window.clearTimeout(hold.current);
+      hold.current = null;
+    }
+  };
+  useEffect(() => cancel, []);
+
   return (
-    <GlassCard className="flex items-center gap-3">
+    <GlassCard
+      className={`flex items-center gap-3 ${onGift ? 'select-none' : ''}`}
+      onPointerDown={start}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+    >
       <div className="tabular text-sm text-ink-500 w-5 text-center">{rank}</div>
       <Avatar seed={memberId} displayName={name} src={avatar} size={40} />
       <div className="flex-1 min-w-0">
@@ -74,6 +236,7 @@ function Leaderboard({ myId }: { myId: MemberId }) {
   const events = useLiveQuery(() => db.pointEvents.toArray()) ?? [];
   const rows = useMemo(() => buildLeaderboard(events, profiles.map((p) => p.id)), [events, profiles]);
   const byId = useMemo(() => Object.fromEntries(profiles.map((p) => [p.id, p])), [profiles]);
+  const [giftTo, setGiftTo] = useState<{ id: MemberId; name: string } | null>(null);
 
   if (profiles.length === 0) {
     return <GlassCard className="text-ink-600 text-sm text-center">No members synced yet.</GlassCard>;
@@ -81,6 +244,7 @@ function Leaderboard({ myId }: { myId: MemberId }) {
 
   return (
     <div className="space-y-3">
+      <CrewGoalBar events={events} />
       {rows.map((r, i) => {
         const p = byId[r.member];
         const next = nextTier(r.points, DEFAULT_CONFIG);
@@ -91,6 +255,9 @@ function Leaderboard({ myId }: { myId: MemberId }) {
             memberId={r.member}
             name={p?.displayName ?? '—'}
             points={r.points}
+            onGift={
+              r.member === myId ? undefined : () => setGiftTo({ id: r.member, name: p?.displayName ?? 'them' })
+            }
           >
             <div className="flex items-center gap-2 mt-0.5">
               <TierBadge tier={r.tier} />
@@ -102,7 +269,131 @@ function Leaderboard({ myId }: { myId: MemberId }) {
           </LeaderboardRow>
         );
       })}
+      <div className="text-center text-xs text-ink-500 px-6">
+        Hold someone's name to send them a point.
+      </div>
+
+      <AnimatePresence>
+        {giftTo && (
+          <KudosModal
+            to={giftTo.id}
+            name={giftTo.name}
+            myId={myId}
+            events={events}
+            onClose={() => setGiftTo(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * The shared bar. Everyone's points, one target, one allusive reward.
+ *
+ * Purely derived: no records, no conflicts, and it moves whenever anyone
+ * scores anything — which is the cooperative pull it's there to create.
+ */
+function CrewGoalBar({ events }: { events: PointEvent[] }) {
+  const goalsRow = useLiveQuery(() => db.meta.get('goals'), []);
+  const goals = Array.isArray(goalsRow?.value) ? (goalsRow.value as CrewGoal[]) : [];
+  const goal = goals[0];
+  if (!goal) return null;
+
+  const { total, pct, reached } = goalProgress(events, goal.target);
+  return (
+    <GlassCard className="bg-gradient-to-br from-ocean/10 to-white/50">
+      <div className="flex items-center justify-between">
+        <div className="font-medium text-sm">🤝 {goal.label}</div>
+        <div className="tabular text-sm text-ink-600">
+          {total} / {goal.target}
+        </div>
+      </div>
+      <div className="mt-2 h-2.5 rounded-full bg-white/50 overflow-hidden">
+        <motion.div
+          className={`h-full rounded-full ${reached ? 'bg-sage-400' : 'bg-ocean'}`}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ type: 'spring', stiffness: 100, damping: 22 }}
+        />
+      </div>
+      <div className="mt-1.5 text-xs text-ink-600">
+        {reached ? `Unlocked — ${goal.rewardLabel} 🎉` : `${goal.rewardLabel}, together, by ${goal.until}`}
+      </div>
+    </GlassCard>
+  );
+}
+
+/** Hand someone a point, with the note that makes it mean something. */
+function KudosModal({
+  to, name, myId, events, onClose,
+}: {
+  to: MemberId;
+  name: string;
+  myId: MemberId;
+  events: PointEvent[];
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const today = todayYMD();
+  const left = kudosRemaining(events, myId, today);
+  const check = canSendKudos({ events, giver: myId, to, note, date: today });
+
+  async function send() {
+    if (busy || !check.ok) return;
+    setBusy(true);
+    try {
+      await awardPoints({
+        to, by: myId, amount: KUDOS_POINTS, reason: 'gift', note: note.trim(),
+      });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="w-[min(100%,430px)] glass rounded-t-[28px] sm:rounded-[28px] p-5 pb-8"
+        initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-3 mb-4">
+          <div className="text-3xl">💝</div>
+          <div className="flex-1">
+            <div className="font-display text-lg font-semibold">Send {name} a point</div>
+            <div className="text-sm text-ink-600">{left} left to give today</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-ink-400 p-1">
+            <X size={18} />
+          </button>
+        </div>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="What's it for?"
+          maxLength={MAX_NOTE_LENGTH}
+          className="w-full rounded-2xl bg-white/70 ring-1 ring-white/80 px-4 py-3 text-[15px] outline-none focus:ring-sage-300"
+        />
+        {!check.ok && note.length > 0 && (
+          <div className="text-coral text-xs mt-2">{check.reason}</div>
+        )}
+        <button
+          type="button"
+          disabled={busy || !check.ok}
+          onClick={() => void send()}
+          className="mt-4 w-full rounded-full bg-ink-900 text-white font-medium py-3 disabled:opacity-40 active:scale-[0.98] transition"
+        >
+          {busy ? 'Sending…' : `Send +${KUDOS_POINTS}`}
+        </button>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -302,7 +593,7 @@ function PhotoClaim({ challenge, myId, onDone }: { challenge: Challenge; myId: M
       }
 
       // Post the photo to the album.
-      const photoId = await postProofPhoto(result, myId, challenge.placeSlug);
+      const photoId = await postPhoto(result, myId, { placeSlug: challenge.placeSlug });
       // Standard photo point (capped) + the challenge award.
       await awardPoints({ to: myId, by: myId, amount: EARN.photo, reason: 'photo', refId: photoId, dailyCap: CAPS.photoPerDay });
       await completeChallenge(challenge, myId, { proofPhotoId: photoId, awardedPoints: challenge.points + (challenge.bonusPoints ?? 0) });
@@ -507,40 +798,3 @@ async function completeChallenge(
   }
 }
 
-async function postProofPhoto(
-  result: Awaited<ReturnType<typeof compressForPost>>,
-  by: MemberId,
-  placeSlug?: string,
-): Promise<string> {
-  const now = new Date();
-  const id = uid();
-  const photo: Photo = {
-    id,
-    from: by,
-    takenAt: result.takenAt,
-    uploadedAt: now.toISOString(),
-    caption: undefined,
-    placeSlug,
-    filePath: '',
-    width: result.width,
-    height: result.height,
-    bytes: result.bytes,
-    exifPresent: result.exifPresent,
-  };
-  const jpgPath = photoBinaryPath(photo);
-  const sidecarPath = photoSidecarPath(photo);
-  photo.filePath = jpgPath;
-  await db.photos.put(photo);
-  await db.photoBlobs.put({ photoId: id, bytes: result.file });
-  await enqueue({
-    id: `${id}-bin`,
-    enqueuedAt: now.toISOString(),
-    op: { kind: 'put-file', path: jpgPath, contentBase64: await blobToBase64(result.file), commitMessage: 'add photo' },
-  });
-  await enqueue({
-    id: `${id}-meta`,
-    enqueuedAt: now.toISOString(),
-    op: { kind: 'put-file', path: sidecarPath, contentBase64: textToBase64(JSON.stringify(photo)), commitMessage: 'add photo metadata' },
-  });
-  return id;
-}

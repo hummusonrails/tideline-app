@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Page } from '../ui/Page';
 import { GlassCard } from '../ui/GlassCard';
@@ -22,8 +22,22 @@ import { isShabbatNow, prettyDate } from '../lib/time';
 import { useNetState } from '../lib/net';
 import { tierAckKey, tierToCelebrate } from '../lib/celebrate';
 import { Celebration } from '../ui/Celebration';
+import { Confetti } from '../ui/Confetti';
 import { localDay } from '../lib/recap';
-import type { ItineraryItem, Place, HabitCheckIn, PointEvent, PointsConfig, Tier } from '../types';
+import { completeSynthetic } from '../lib/award';
+import { useOpenHunts } from './Quest';
+import {
+  activeMoment,
+  formatCountdown,
+  hasJoined,
+  joinedMembers,
+  momentAllId,
+  momentJoinId,
+  shouldMintAllCrew,
+} from '../lib/moments';
+import { buildReminders } from '../lib/reminders';
+import { useEggAnchor } from '../lib/eggRuntime';
+import type { ItineraryItem, Place, HabitCheckIn, PointEvent, PointsConfig, Tier, Moment } from '../types';
 
 export function Today() {
   const session = useSession();
@@ -93,6 +107,9 @@ export function Today() {
     >
       <SeaBanner />
       <TierCelebration events={events} member={id} />
+      <MomentCard myId={id} />
+      <TripFinalePrompt today={today} endDate={tripMeta?.endDate} />
+      <Reminders myId={id} today={today} onShabbat={onShabbat} />
       <RecapPrompt today={today} />
       {(onShabbat || todayShabbat) && (
         <div className="glass rounded-[28px] px-5 py-4 bg-gradient-to-br from-white/60 to-sage-100/50">
@@ -118,10 +135,10 @@ export function Today() {
               : 'Your family adventure'}
         </div>
 
-        {/* Stat pills */}
+        {/* Stat pills. Two of them double as egg anchors — see lib/eggs.ts. */}
         <div className="mt-4 flex items-center justify-center gap-2">
-          <StatPill icon={<Trophy size={14} />} label="Points" value={String(myPoints)} />
-          <StatPill icon={<Flame size={14} />} label="Streak" value={`${streak}d`} />
+          <StatPill icon={<Trophy size={14} />} label="Points" value={String(myPoints)} anchor="points-pill" />
+          <StatPill icon={<Flame size={14} />} label="Streak" value={`${streak}d`} anchor="streak-pill" />
           {daysToTrip !== null && daysToTrip > 0 && (
             <StatPill icon={<CalendarDays size={14} />} label="To go" value={`${daysToTrip}d`} />
           )}
@@ -213,21 +230,235 @@ export function Today() {
         </section>
       )}
 
-      {/* Today's challenges */}
+      {/* Hunts with a clue waiting, then today's challenges */}
+      <TodayHunts myId={id} />
       <TodayChallenges date={today} />
     </Page>
   );
 }
 
-function StatPill({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+/**
+ * Hunts with an unlocked, unsolved stage right now.
+ *
+ * Surfaced on Today because a hunt you have to remember to go looking for is a
+ * hunt nobody plays. Locked and finished hunts stay in the Quest tab.
+ */
+function TodayHunts({ myId }: { myId: string }) {
+  const navigate = useNavigate();
+  const open = useOpenHunts(myId);
+  if (open.length === 0) return null;
+
   return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-white/80 px-3.5 py-2">
+    <section>
+      <div className="flex items-center justify-between px-1 mb-3">
+        <h2 className="font-display text-xl font-semibold">Hunts in play</h2>
+        <button
+          type="button"
+          onClick={() => navigate('/quest')}
+          className="text-sm text-ink-600 flex items-center gap-0.5"
+        >
+          All <ChevronRight size={14} />
+        </button>
+      </div>
+      <div className="space-y-3">
+        {open.map(({ hunt, states }) => {
+          const done = states.filter((s) => s.status === 'done').length;
+          return (
+            <button
+              key={hunt.id}
+              type="button"
+              onClick={() => navigate(`/hunt/${hunt.id}`)}
+              className="w-full text-left active:scale-[0.99] transition"
+            >
+              <GlassCard className="flex items-center gap-3 !py-4">
+                <div className="text-2xl">{hunt.icon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{hunt.title}</div>
+                  <div className="text-xs text-ink-600">
+                    Stage {done + 1} of {hunt.stages.length} waiting
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-ink-600 shrink-0" />
+              </GlassCard>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The synchronized-moment card: a countdown, then a check-in button, then the
+ * crew filling up.
+ *
+ * The clock ticks locally once a second — no data required, which is the whole
+ * point on a glacier morning in a bay with no coverage.
+ */
+function MomentCard({ myId }: { myId: string }) {
+  const momentsRow = useLiveQuery(() => db.meta.get('moments'), []);
+  const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
+  const profiles = useLiveQuery(() => db.profiles.toArray(), []) ?? [];
+  const [now, setNow] = useState(() => new Date());
+  const [busy, setBusy] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
+
+  const moments = useMemo<Moment[]>(
+    () => (Array.isArray(momentsRow?.value) ? (momentsRow.value as Moment[]) : []),
+    [momentsRow],
+  );
+  const picked = useMemo(() => activeMoment(moments, now), [moments, now]);
+
+  useEffect(() => {
+    if (!picked) return;
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, [picked]);
+
+  const moment = picked?.moment;
+  const joined = moment ? hasJoined(completions, myId, moment.id) : false;
+  const crewIn = moment ? joinedMembers(completions, moment.id) : [];
+
+  // The all-crew bonus is minted by each device for its own member, the moment
+  // it can see everyone in — including when that arrives over gossip, hours
+  // later, with the ship still offline.
+  const mintAll = moment
+    ? shouldMintAllCrew({ moment, profiles, completions, member: myId })
+    : false;
+  useEffect(() => {
+    if (!moment || !mintAll) return;
+    void completeSynthetic({
+      challengeId: momentAllId(moment.id),
+      by: myId,
+      points: moment.allBonus,
+      commitMessage: `all crew: ${moment.id}`,
+    }).then((created) => {
+      if (created) setCelebrating(true);
+    });
+  }, [moment, mintAll, myId]);
+
+  if (!moment || !picked) return null;
+
+  const live = picked.state.phase === 'live';
+
+  async function join() {
+    if (!moment || joined || busy) return;
+    setBusy(true);
+    try {
+      await completeSynthetic({
+        challengeId: momentJoinId(moment.id),
+        by: myId,
+        points: moment.joinPoints,
+        commitMessage: `joined: ${moment.id}`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {celebrating && <Confetti onDone={() => setCelebrating(false)} />}
+      <GlassCard className="!rounded-[28px] bg-gradient-to-br from-ocean/15 to-white/50">
+        <div className="flex items-start gap-3">
+          <div className="text-2xl shrink-0">{moment.icon ?? '⏱️'}</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-display text-lg font-semibold">{moment.title}</div>
+            <div className="text-sm text-ink-600 mt-0.5">{moment.prompt}</div>
+          </div>
+          <div className="tabular text-ocean font-semibold shrink-0">
+            {formatCountdown(picked.state.phase === 'idle' || picked.state.phase === 'over' ? 0 : picked.state.msRemaining)}
+          </div>
+        </div>
+
+        {live && (
+          <button
+            type="button"
+            disabled={joined || busy}
+            onClick={() => void join()}
+            className={`mt-4 w-full rounded-full font-medium py-3 transition ${
+              joined ? 'bg-sage-200 text-sage-700' : 'bg-ink-900 text-white active:scale-[0.98]'
+            }`}
+          >
+            {joined ? "✓ You're here" : busy ? 'Saving…' : `I'm on deck ⚓ · +${moment.joinPoints}`}
+          </button>
+        )}
+
+        {crewIn.length > 0 && (
+          <div className="mt-3 text-xs text-ink-600">
+            {crewIn.length} of {profiles.length || crewIn.length} on deck
+            {profiles.length > 0 && crewIn.length === profiles.length && ' — everyone made it 🎉'}
+          </div>
+        )}
+      </GlassCard>
+    </>
+  );
+}
+
+/** Local nudges — the offline half of the notification story. */
+function Reminders({ myId, today, onShabbat }: { myId: string; today: string; onShabbat: boolean }) {
+  const navigate = useNavigate();
+  const challenges = useLiveQuery(() => db.challenges.toArray(), []) ?? [];
+  const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
+  const habits = useLiveQuery(() => db.habits.toArray(), []) ?? [];
+
+  const reminders = useMemo(
+    () => buildReminders({ challenges, completions, habits, member: myId, today, onShabbat }),
+    [challenges, completions, habits, myId, today, onShabbat],
+  );
+  if (reminders.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      {reminders.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          onClick={() => navigate(r.href)}
+          className="w-full glass rounded-[28px] px-5 py-3.5 flex items-center gap-3 text-left active:scale-[0.99] transition"
+        >
+          <span className="text-xl shrink-0">{r.icon}</span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-medium text-sm">{r.title}</span>
+            <span className="block text-xs text-ink-600 truncate">{r.detail}</span>
+          </span>
+          <ChevronRight size={16} className="text-ink-600 shrink-0" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A stat chip. With an `anchor` it also counts taps and long-presses for the
+ * egg engine — deliberately without changing how it looks or behaves, since
+ * the whole point is that nothing about it invites the poking.
+ */
+function StatPill({
+  icon, label, value, anchor,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  anchor?: string;
+}) {
+  const gestures = useEggAnchor(anchor ?? '');
+  const body = (
+    <>
       <span className="text-ink-600">{icon}</span>
       <span className="text-sm">
         <span className="font-semibold tabular">{value}</span>{' '}
         <span className="text-ink-500">{label}</span>
       </span>
-    </div>
+    </>
+  );
+  const className = 'inline-flex items-center gap-2 rounded-full bg-white/70 ring-1 ring-white/80 px-3.5 py-2';
+
+  if (!anchor) return <div className={className}>{body}</div>;
+  return (
+    <button type="button" className={className} aria-label={`${value} ${label}`} {...gestures}>
+      {body}
+    </button>
   );
 }
 
@@ -419,6 +650,37 @@ function RecapPrompt({ today }: { today: string }) {
         <span className="block font-medium">Tonight's recap</span>
         <span className="block text-xs text-ink-600">
           {todayPhotos} photo{todayPhotos === 1 ? '' : 's'} from today, plus the scores
+        </span>
+      </span>
+      <ChevronRight size={16} className="text-ink-600 shrink-0" />
+    </button>
+  );
+}
+
+/**
+ * The last morning: the whole trip, ready to watch.
+ *
+ * Appears on the final day and stays afterwards — the story doesn't expire
+ * just because the ship docked, and this is the only route to it once the
+ * daily recap has nothing left to show.
+ */
+function TripFinalePrompt({ today, endDate }: { today: string; endDate?: string }) {
+  const navigate = useNavigate();
+  if (!endDate || today < endDate) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate('/recap?trip=1')}
+      className="w-full rounded-[28px] px-5 py-5 flex items-center gap-3 text-left active:scale-[0.99] transition bg-gradient-to-br from-tier-gold/30 via-white/60 to-sage-100/60 ring-1 ring-white/80 shadow-[var(--shadow-pill)]"
+    >
+      <span className="grid h-11 w-11 place-items-center rounded-full bg-ink-900 text-white shrink-0">
+        <Play size={18} />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-display text-lg font-semibold">The Tideline Story</span>
+        <span className="block text-xs text-ink-600">
+          The whole trip, start to finish. Watch it together.
         </span>
       </span>
       <ChevronRight size={16} className="text-ink-600 shrink-0" />

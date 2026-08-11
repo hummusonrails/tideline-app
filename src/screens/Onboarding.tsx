@@ -110,7 +110,7 @@ export function Onboarding() {
                     {slot.emoji}
                   </div>
                 ) : (
-                  <Avatar seed={slot.avatarSeed} size={72} />
+                  <Avatar seed={slot.avatarSeed} size={72} noCrew />
                 )}
                 <span className="font-medium text-ink-700">
                   {slot.emoji ? 'Tap to unlock' : `Slot ${slot.id.slice(0, 4)}`}
@@ -137,7 +137,7 @@ export function Onboarding() {
                       {slot.emoji}
                     </div>
                   ) : (
-                    <Avatar seed={slot.avatarSeed} size={84} />
+                    <Avatar seed={slot.avatarSeed} size={84} noCrew />
                   );
                 })()}
               </div>

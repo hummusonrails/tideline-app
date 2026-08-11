@@ -15,7 +15,8 @@ import { textToBase64 } from '../lib/github';
 import { compressAvatar, blobToBase64 } from '../lib/compress';
 import { disablePush, enablePush, getPushStatus, type PushStatus } from '../lib/push';
 import { DEFAULT_CONFIG } from '../lib/points';
-import { LogOut, ShieldAlert, Camera, Info, Smartphone, Bell, BellOff } from 'lucide-react';
+import { useAvatarSpec } from '../lib/avatar';
+import { LogOut, ShieldAlert, Camera, Info, Smartphone, Bell, BellOff, ChevronRight } from 'lucide-react';
 import type { PointsConfig } from '../types';
 
 export function Profile() {
@@ -29,6 +30,7 @@ export function Profile() {
     [myId],
   ) ?? [];
   const amParent = myProfile?.role === 'parent';
+  const crewSpec = useAvatarSpec(myId);
   const avatarInput = useRef<HTMLInputElement>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -125,6 +127,26 @@ export function Profile() {
           </div>
         )}
       </GlassCard>
+
+      {/* Crew avatar studio */}
+      <button
+        type="button"
+        onClick={() => navigate('/avatar')}
+        className="w-full text-left active:scale-[0.99] transition"
+      >
+        <GlassCard className="flex items-center gap-3 bg-gradient-to-br from-sage-100/60 to-white/50">
+          <div className="text-2xl shrink-0">🦦</div>
+          <div className="flex-1 min-w-0">
+            <div className="font-medium">Design your crew member</div>
+            <div className="text-xs text-ink-600">
+              {crewSpec
+                ? 'Change your look, or set today’s mood'
+                : 'Pick a creature, colours and a hat. More unlock as you climb.'}
+            </div>
+          </div>
+          <ChevronRight size={16} className="text-ink-600 shrink-0" />
+        </GlassCard>
+      </button>
 
       {amParent && (
         <>

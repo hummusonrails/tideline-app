@@ -1,14 +1,42 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { X, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { db } from '../lib/db';
 import { useObjectUrl } from '../lib/blobUrl';
 import { todayYMD, prettyDate } from '../lib/time';
-import { buildRecap, hasRecap, type RecapSlide } from '../lib/recap';
-import type { Photo } from '../types';
+import { useTripMeta } from '../lib/trip';
+import {
+  buildRecap,
+  buildTripRecap,
+  hasRecap,
+  hasTripRecap,
+  localDay,
+  type RecapSlide,
+} from '../lib/recap';
+import type { CrewGoal, Message, Photo } from '../types';
 
 const SLIDE_MS = 4000;
+
+/**
+ * Prefix that opts a poll into the awards-night tally.
+ *
+ * Parents post the ballots as ordinary polls; the star is what tells the
+ * finale which ones to read. Everything else in the chat stays out of it.
+ */
+export const AWARD_MARKER = '⭐';
+
+/** Earliest day anything was recorded — the fallback trip start. */
+function earliestDay(
+  photos: readonly Photo[],
+  messages: readonly Message[],
+): string | null {
+  const days = [
+    ...photos.map((p) => localDay(p.takenAt)),
+    ...messages.map((m) => localDay(m.sentAt)),
+  ].sort();
+  return days[0] ?? null;
+}
 
 /**
  * The day, played back full-screen.
@@ -19,6 +47,10 @@ const SLIDE_MS = 4000;
  */
 export function Recap() {
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  // `?trip=1` switches from tonight's playback to the whole-trip story. Same
+  // player, same slide vocabulary — only the builder changes.
+  const tripMode = search.get('trip') === '1';
   const date = todayYMD();
 
   const photos = useLiveQuery(() => db.photos.toArray(), []) ?? [];
@@ -27,16 +59,39 @@ export function Recap() {
   const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
   const habits = useLiveQuery(() => db.habits.toArray(), []) ?? [];
   const profiles = useLiveQuery(() => db.profiles.toArray(), []) ?? [];
+  const reactions = useLiveQuery(() => db.reactions.toArray(), []) ?? [];
+  const hunts = useLiveQuery(() => db.hunts.toArray(), []) ?? [];
+  const goalsRow = useLiveQuery(() => db.meta.get('goals'), []);
+  const tripMeta = useTripMeta();
 
   const names = useMemo(
     () => Object.fromEntries(profiles.map((p) => [p.id, p.displayName])),
     [profiles],
   );
 
-  const slides = useMemo(
-    () => buildRecap({ date, photos, messages, pointEvents, completions, habits, names }),
-    [date, photos, messages, pointEvents, completions, habits, names],
+  // Award ballots are ordinary polls the parents post on the last night; they
+  // opt in by starting the question with a star, so nothing else in the chat
+  // gets swept into the finale.
+  const awardBallots = useMemo(
+    () => messages.filter((m) => m.kind === 'poll' && m.body.startsWith(AWARD_MARKER)),
+    [messages],
   );
+
+  const slides = useMemo(() => {
+    if (!tripMode) {
+      return buildRecap({ date, photos, messages, pointEvents, completions, habits, names });
+    }
+    const goals = Array.isArray(goalsRow?.value) ? (goalsRow.value as CrewGoal[]) : [];
+    return buildTripRecap({
+      startDate: tripMeta?.startDate ?? earliestDay(photos, messages) ?? date,
+      endDate: tripMeta?.endDate ?? date,
+      photos, messages, pointEvents, completions, habits, names,
+      reactions, profiles, hunts, goal: goals[0], awardBallots,
+    });
+  }, [
+    tripMode, date, photos, messages, pointEvents, completions, habits, names,
+    reactions, profiles, hunts, goalsRow, tripMeta, awardBallots,
+  ]);
 
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -66,7 +121,8 @@ export function Recap() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate, slides.length]);
 
-  if (!hasRecap(slides)) {
+  const ready = tripMode ? hasTripRecap(slides) : hasRecap(slides);
+  if (!ready) {
     return (
       <div className="min-h-dvh grid place-items-center bg-ink-900 text-white p-8 text-center">
         <div>
@@ -179,6 +235,70 @@ function SlideView({ slide, date }: { slide: RecapSlide; date: string }) {
         <div>
           <div className="font-display text-3xl font-semibold">{slide.headline}</div>
           <div className="text-sm text-white/60 mt-2">{prettyDate(date)}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (slide.kind === 'chapter') {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-10 text-center">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-white/50">Chapter</div>
+          <div className="font-display text-3xl font-semibold mt-2">{slide.headline}</div>
+          {slide.detail && <div className="text-white/70 mt-2 tabular">{slide.detail}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  if (slide.kind === 'award') {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-10 text-center">
+        <div>
+          <div className="text-4xl mb-3">🏆</div>
+          <div className="text-white/70 text-sm">{slide.headline}</div>
+          <div className="font-display text-3xl font-semibold mt-2">{slide.winner}</div>
+          <div className="text-xs text-white/50 mt-3">{slide.detail}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (slide.kind === 'reveal') {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-10 text-center">
+        <div>
+          <div className="text-xs uppercase tracking-[0.2em] text-white/50">The answer</div>
+          <div className="font-display text-2xl font-semibold mt-2">{slide.headline}</div>
+          <div className="text-[16px] leading-relaxed text-white/85 mt-4 whitespace-pre-line">
+            {slide.body}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (slide.kind === 'leaderboard') {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-8">
+        <div className="w-full max-w-xs">
+          <div className="font-display text-2xl font-semibold text-center mb-5">
+            Final standings
+          </div>
+          <div className="space-y-2">
+            {slide.rows.map((r, i) => (
+              <div
+                key={r.name + i}
+                className="flex items-center gap-3 rounded-2xl bg-white/10 px-4 py-3"
+              >
+                <span className="tabular text-white/50 w-4">{i + 1}</span>
+                <span className="flex-1 min-w-0 truncate">{r.name}</span>
+                <span className="text-[11px] text-white/50 capitalize">{r.tier}</span>
+                <span className="font-display text-lg tabular font-semibold">{r.points}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );

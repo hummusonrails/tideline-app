@@ -186,7 +186,14 @@ export type PointReason =
   | 'trivia'
   | 'parent-bonus'
   | 'streak'
-  | 'correction';
+  | 'correction'
+  /**
+   * A point handed from one member to another with a note. The only
+   * cross-member mint besides 'parent-bonus', and deliberately tiny: it's
+   * signed by the giver's device and capped per giver per day, so gossip
+   * can't turn it into a duplication channel.
+   */
+  | 'gift';
 
 export interface PointEvent {
   id: string;
@@ -240,6 +247,153 @@ export interface HabitCheckIn {
   by: MemberId;
   date: string;             // YYYY-MM-DD
   at: string;               // ISO
+}
+
+// ---------- Treasure hunts ----------
+
+/**
+ * How a hunt stage is proved.
+ *
+ * `code` answers are stored as a SHA-256 hash of the normalized answer rather
+ * than plaintext. Everyone on the trip holds a token that can read the data
+ * backend, so plaintext solutions would be thirty seconds of curiosity away.
+ */
+export type HuntStageProof =
+  | { type: 'code'; answerHash: string; placeholder?: string }
+  | { type: 'photo' }
+  | { type: 'checkbox' }
+  | { type: 'quiz'; q: string; options: string[]; answer: number };
+
+/**
+ * Gate on when a stage becomes solvable. All present conditions must hold.
+ * Absent means "as soon as the previous stage is done".
+ */
+export interface HuntStageUnlock {
+  onOrAfterDate?: string;   // local YYYY-MM-DD
+  placeSlug?: string;       // today's itinerary must reference this place
+  notBeforeISO?: string;    // wall-clock gate
+}
+
+export interface HuntStage {
+  clue: string;             // markdown-ish; rendered as plain paragraphs
+  hint?: string;            // revealing it halves this stage's points
+  proof: HuntStageProof;
+  points: number;
+  unlock?: HuntStageUnlock;
+}
+
+export interface Hunt {
+  id: string;
+  title: string;
+  icon: string;             // emoji
+  intro: string;
+  kind: 'port' | 'ship' | 'meta';
+  /** Which members play. Resolved against Profile.role; defaults to 'all'. */
+  team?: 'kids' | 'parents' | 'all';
+  stages: HuntStage[];
+  finaleBonus: number;      // extra points for closing the last stage
+  reveal?: string;          // the payoff, shown once the hunt is finished
+  /** Invisible until its first stage's unlock condition passes. */
+  hidden?: boolean;
+  activeFrom: string;       // YYYY-MM-DD
+  activeUntil: string;
+}
+
+// ---------- Avatars ----------
+
+/**
+ * A member's composed crew avatar. Part ids reference the public catalog in
+ * lib/avatarCatalog.ts; the art itself ships in code, so this record carries
+ * nothing but opaque choices.
+ *
+ * Single-writer mutable file (`avatars/<id>.avatar.json`), the same
+ * convergence class as `profiles/<id>.json`: exactly one member ever writes
+ * their own. Two devices signed in as the same member resolve by `updatedAt`.
+ */
+export interface AvatarSpec {
+  memberId: MemberId;
+  base: string;
+  palette: string;
+  eyes: string;
+  mouth: string;
+  hat?: string;
+  accessory?: string;
+  /** Date-scoped so it expires on its own instead of needing a clear. */
+  mood?: { emoji: string; date: string };
+  updatedAt: string;        // ISO
+}
+
+// ---------- Easter eggs ----------
+
+/**
+ * What makes an egg fire. Every variant is a generic mechanic: the engine
+ * knows "a date trigger exists", only the private trip data knows which date.
+ */
+export type EggTrigger =
+  | { kind: 'tap-seq'; anchor: string; count: number }
+  | { kind: 'long-press'; anchor: string; ms: number }
+  | { kind: 'corner-code'; sequence: ('tl' | 'tr' | 'bl' | 'br')[] }
+  | { kind: 'date'; date: string }
+  | { kind: 'place-day'; placeSlug: string }
+  | { kind: 'milestone'; metric: EggMetric; atLeast: number };
+
+/** Locally computable counters a secret achievement can watch. */
+export type EggMetric =
+  | 'points'
+  | 'photos'
+  | 'streak'
+  | 'reactionsGiven'
+  | 'journals'
+  | 'challenges'
+  | 'eggsFound';
+
+export type EggEffect =
+  | 'confetti'
+  | 'aurora'
+  | 'sonar'
+  | 'snow'
+  | 'message';
+
+export interface EggDef {
+  id: string;
+  trigger: EggTrigger;
+  effect: EggEffect;
+  points: number;
+  copy: string;
+  /** Title shown in the Crew Deck once found. Falls back to the copy. */
+  title?: string;
+  /** Renders as "???" in the Crew Deck until earned. */
+  secret?: boolean;
+}
+
+// ---------- Live moments ----------
+
+/**
+ * A window the whole family is invited into at the same time. The countdown
+ * is pure clock math against fields already on the device, so it works with
+ * no connectivity — which is the point, since the best ones happen at sea.
+ */
+export interface Moment {
+  id: string;
+  title: string;
+  prompt: string;
+  startISO: string;
+  endISO: string;
+  joinPoints: number;
+  /** Extra for everyone once every member has checked in. */
+  allBonus: number;
+  icon?: string;
+}
+
+// ---------- Co-op goal ----------
+
+export interface CrewGoal {
+  id: string;
+  label: string;
+  target: number;
+  /** Deliberately allusive — the app never names or prices a reward. */
+  rewardLabel: string;
+  until: string;            // YYYY-MM-DD
 }
 
 // ---------- Tiers & prizes ----------

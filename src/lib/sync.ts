@@ -26,6 +26,8 @@ import type {
   ItineraryDoc,
   PointsConfig,
   Reaction,
+  Hunt,
+  AvatarSpec,
 } from '../types';
 
 /**
@@ -214,6 +216,15 @@ async function pullAll(ctx: GHCtx): Promise<void> {
       .filter((p) => !expectedPlaceSlugs.has(p.slug))
       .map((p) => p.slug);
     if (stalePlaceSlugs.length > 0) await db.places.bulkDelete(stalePlaceSlugs);
+    // Hunts get the same treatment: pulling a hunt is how it appears, so
+    // deleting the file has to be how it goes away again. Without this, a
+    // hunt retired mid-trip would linger on every phone that already saw it.
+    const expectedHuntIds = expectedSlugs(paths, 'hunts/');
+    const localHunts = await db.hunts.toArray();
+    const staleHuntIds = localHunts
+      .filter((h) => !expectedHuntIds.has(h.id))
+      .map((h) => h.id);
+    if (staleHuntIds.length > 0) await db.hunts.bulkDelete(staleHuntIds);
 
     // Only now — after every file is pulled and reconciled — record the tree
     // as fully synced. If anything above was interrupted, no etag is saved,
@@ -366,6 +377,51 @@ function routeFor(path: string): Route | null {
     return {
       kind: 'json',
       upsert: async (p) => { await db.meta.put({ key: 'shabbat-times', value: p }); },
+    };
+  }
+  // Gameplay content authored in the backend, cached whole in `meta`. These
+  // are small documents read in full on render, so a table each would buy
+  // nothing over one row apiece.
+  if (path === 'config/eggs.json') {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.meta.put({ key: 'eggs', value: p }); },
+    };
+  }
+  if (path === 'config/moments.json') {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.meta.put({ key: 'moments', value: p }); },
+    };
+  }
+  if (path === 'config/goals.json') {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.meta.put({ key: 'goals', value: p }); },
+    };
+  }
+  // Hunts: hunts/<id>.json, one per file.
+  if (path.startsWith('hunts/') && path.endsWith('.json')) {
+    return {
+      kind: 'json',
+      upsert: async (p) => { await db.hunts.put(p as Hunt); },
+    };
+  }
+  // Composed avatars: avatars/<memberId>.avatar.json.
+  //
+  // Must be tested before the avatar *photo* route below — a `.json` here is
+  // a spec, never image bytes.
+  if (path.startsWith('avatars/') && path.endsWith('.json')) {
+    return {
+      kind: 'json',
+      upsert: async (p) => {
+        const spec = p as AvatarSpec;
+        // Same member on two devices: newer write wins. Without this an
+        // out-of-order pull could resurrect an older look.
+        const existing = await db.avatarSpecs.get(spec.memberId);
+        if (existing && existing.updatedAt > spec.updatedAt) return;
+        await db.avatarSpecs.put(spec);
+      },
     };
   }
   // Messages: messages/<YYYY-MM-DD>/<file>.json
