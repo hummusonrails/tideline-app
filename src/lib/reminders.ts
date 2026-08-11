@@ -22,8 +22,15 @@ export interface Reminder {
   icon: string;
   title: string;
   detail: string;
-  /** Where tapping it should go. */
-  href: string;
+  /**
+   * What tapping it does.
+   *
+   * `check-in` performs the action inline rather than navigating. The streak
+   * card lives on Today and used to link to Today, which meant tapping the
+   * thing that said "one tap" did nothing at all. If the copy promises one
+   * tap, the card has to be the tap.
+   */
+  action: { kind: 'navigate'; href: string } | { kind: 'check-in' };
 }
 
 /**
@@ -93,7 +100,7 @@ export function buildReminders(opts: {
         expiring.length === 1
           ? expiring[0].title
           : `${expiring[0].title} and ${expiring.length - 1} more`,
-      href: '/quest',
+      action: { kind: 'navigate', href: '/quest' },
     });
   }
 
@@ -102,8 +109,8 @@ export function buildReminders(opts: {
       id: 'streak',
       icon: '🔥',
       title: 'Your streak needs one tap',
-      detail: "Check in before bed and the chain holds.",
-      href: '/today',
+      detail: 'Tap here and the chain holds.',
+      action: { kind: 'check-in' },
     });
   }
 

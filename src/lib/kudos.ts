@@ -1,26 +1,47 @@
 /**
- * Kudos — handing someone else a point, with a note.
+ * Kudos — handing someone else one of your own points, with a note.
  *
- * This is the one deliberate exception to "a device only ever mints points for
- * its own member". It's safe because of how small and how signed it is: one
- * point, authored by the giver's device, capped at a few per giver per day.
- * There is nothing to gain by gaming it and nothing to lose if someone does.
+ * It is a **transfer**, not a mint: the giver is debited and the recipient is
+ * credited by the same amount, so you can never give away more than you have.
+ * The first version credited the recipient without touching the giver, which
+ * meant a member sitting on zero could still hand out points — "sending" that
+ * costs nothing has no balance to exceed, and it read as a bug because it was
+ * one. It also quietly inflated the crew total every time anyone was nice.
+ *
+ * A transfer keeps the family's combined score constant, which matters because
+ * the crew goal is measured against it.
  *
  * It exists for a specific failure mode of a points competition: the kid who
  * is behind has no lever except grinding, and the kid who is ahead has no
- * reason to be generous. A gift-only currency gives both of them something
- * better to do.
+ * reason to be generous. Making generosity cost something real is what gives
+ * it weight.
  *
- * Note the cap is counted by **giver**, not recipient — the opposite of every
+ * Both halves are written by the giver's own device — a debit against
+ * themselves and a credit to someone else. That's the one sanctioned deviation
+ * from "self-mint only", and it's safe because it's signed by the giver, capped
+ * per giver per day, and can only ever move value away from the author.
+ *
+ * Note the daily cap counts by **giver**, not recipient — the opposite of every
  * other cap in the app. Capping the recipient would let one sibling silently
  * use up the other's ability to receive kindness.
  */
 
 import type { MemberId, PointEvent } from '../types';
+import { totalPoints } from './points';
 
 export const KUDOS_POINTS = 1;
 export const KUDOS_PER_DAY = 3;
 export const MAX_NOTE_LENGTH = 140;
+
+/**
+ * Is this the credit half of a transfer?
+ *
+ * The debit shares the `gift` reason and the same author, so anything counting
+ * "gifts given" has to exclude it or every transfer is counted twice.
+ */
+export function isKudosCredit(e: PointEvent): boolean {
+  return e.reason === 'gift' && e.amount > 0 && e.to !== e.by;
+}
 
 /** How many kudos this member has given on a local date. */
 export function kudosGivenOn(
@@ -29,7 +50,7 @@ export function kudosGivenOn(
   date: string,
 ): number {
   return events.filter(
-    (e) => e.reason === 'gift' && e.by === giver && e.at.slice(0, 10) === date,
+    (e) => isKudosCredit(e) && e.by === giver && e.at.slice(0, 10) === date,
   ).length;
 }
 
@@ -69,6 +90,11 @@ export function canSendKudos(opts: {
   if (opts.note.trim().length > MAX_NOTE_LENGTH) {
     return { ok: false, reason: 'Keep it short and sweet.' };
   }
+  // You can only give what you actually have. This is the check that was
+  // missing: without it a member on zero could hand out points all day.
+  if (totalPoints(opts.events as PointEvent[], opts.giver) < KUDOS_POINTS) {
+    return { ok: false, reason: 'You need a point before you can give one away.' };
+  }
   if (kudosRemaining(opts.events, opts.giver, opts.date) <= 0) {
     return { ok: false, reason: `That’s all ${KUDOS_PER_DAY} for today. More tomorrow.` };
   }
@@ -81,7 +107,7 @@ export function kudosReceived(
   member: MemberId,
 ): PointEvent[] {
   return events
-    .filter((e) => e.reason === 'gift' && e.to === member)
+    .filter((e) => isKudosCredit(e) && e.to === member)
     .sort((a, b) => b.at.localeCompare(a.at));
 }
 

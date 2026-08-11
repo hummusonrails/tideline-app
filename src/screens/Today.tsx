@@ -109,7 +109,7 @@ export function Today() {
       <TierCelebration events={events} member={id} />
       <MomentCard myId={id} />
       <TripFinalePrompt today={today} endDate={tripMeta?.endDate} />
-      <Reminders myId={id} today={today} onShabbat={onShabbat} />
+      <Reminders myId={id} today={today} onShabbat={onShabbat} onCheckIn={onCheckIn} />
       <RecapPrompt today={today} />
       {(onShabbat || todayShabbat) && (
         <div className="glass rounded-[28px] px-5 py-4 bg-gradient-to-br from-white/60 to-sage-100/50">
@@ -395,8 +395,24 @@ function MomentCard({ myId }: { myId: string }) {
   );
 }
 
-/** Local nudges — the offline half of the notification story. */
-function Reminders({ myId, today, onShabbat }: { myId: string; today: string; onShabbat: boolean }) {
+/**
+ * Local nudges — the offline half of the notification story.
+ *
+ * The streak card performs the check-in itself rather than linking anywhere.
+ * It sits on Today and used to navigate to Today, so tapping the card that
+ * said "one tap" did precisely nothing.
+ */
+function Reminders({
+  myId,
+  today,
+  onShabbat,
+  onCheckIn,
+}: {
+  myId: string;
+  today: string;
+  onShabbat: boolean;
+  onCheckIn: () => void | Promise<void>;
+}) {
   const navigate = useNavigate();
   const challenges = useLiveQuery(() => db.challenges.toArray(), []) ?? [];
   const completions = useLiveQuery(() => db.completions.toArray(), []) ?? [];
@@ -414,7 +430,10 @@ function Reminders({ myId, today, onShabbat }: { myId: string; today: string; on
         <button
           key={r.id}
           type="button"
-          onClick={() => navigate(r.href)}
+          onClick={() => {
+            if (r.action.kind === 'check-in') void onCheckIn();
+            else navigate(r.action.href);
+          }}
           className="w-full glass rounded-[28px] px-5 py-3.5 flex items-center gap-3 text-left active:scale-[0.99] transition"
         >
           <span className="text-xl shrink-0">{r.icon}</span>
@@ -422,7 +441,13 @@ function Reminders({ myId, today, onShabbat }: { myId: string; today: string; on
             <span className="block font-medium text-sm">{r.title}</span>
             <span className="block text-xs text-ink-600 truncate">{r.detail}</span>
           </span>
-          <ChevronRight size={16} className="text-ink-600 shrink-0" />
+          {r.action.kind === 'check-in' ? (
+            <span className="shrink-0 text-xs font-semibold rounded-full bg-ink-900 text-white px-3 py-1.5">
+              Check in
+            </span>
+          ) : (
+            <ChevronRight size={16} className="text-ink-600 shrink-0" />
+          )}
         </button>
       ))}
     </div>

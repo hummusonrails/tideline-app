@@ -1,9 +1,8 @@
-import { useRef } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Confetti } from './Confetti';
 import { useEggs } from '../lib/eggRuntime';
-import { matchesCornerCode } from '../lib/eggs';
 
 /**
  * The visible half of an easter egg.
@@ -145,57 +144,61 @@ function Snow() {
   );
 }
 
-/**
- * The way into the Crew Deck.
- *
- * Built into the app rather than authored as data, so the room exists from the
- * first build even before any eggs are written — and so losing the data file
- * can never lock the family out of their own trophy case. The sequence itself
- * is generic; it gives away nothing about the trip.
- */
-const DECK_CODE: Corner[] = ['tl', 'tr', 'tl', 'tr'];
-
 type Corner = 'tl' | 'tr' | 'bl' | 'br';
 
+/** How close to a corner counts. Generous enough for a kid's thumb. */
+const CORNER_PX = 56;
+
 /**
- * Invisible corner hit-targets for Konami-style codes.
+ * Corner-tap detection for Konami-style codes.
  *
- * 44px is Apple's minimum touch target; anything smaller and a kid can't
- * reliably hit it, which turns a secret into a frustration.
+ * This *observes* taps rather than capturing them. The first version laid four
+ * invisible buttons over the corners, which quietly ate real controls: the
+ * bottom pair covered the lower half of the Today and Quest tabs, and the top
+ * pair covered the header avatar and the sync chip. Tapping any of those near
+ * a corner did nothing at all.
+ *
+ * A passive, non-capturing `pointerdown` listener has none of that problem. It
+ * can't block, swallow or reorder anything — every real control behaves exactly
+ * as if this weren't here, and the corner is noticed on the way past. A hidden
+ * joke must never cost a working button.
+ *
+ * The sequence itself is tracked in the egg runtime, which sits above the
+ * router: the corners overlap controls that navigate, so a buffer held here
+ * would be wiped by the first tap of the code.
  */
 export function CornerTaps() {
-  const { tapCorner } = useEggs();
+  const { tapCorner, deckRequested, clearDeckRequest } = useEggs();
   const navigate = useNavigate();
-  const buffer = useRef<Corner[]>([]);
 
-  function onCorner(corner: Corner) {
-    // Authored corner-code eggs get a look first.
-    tapCorner(corner);
-    buffer.current = [...buffer.current, corner].slice(-DECK_CODE.length);
-    if (matchesCornerCode(buffer.current, DECK_CODE)) {
-      buffer.current = [];
-      navigate('/crew-deck');
-    }
-  }
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const corner = cornerAt(e.clientX, e.clientY);
+      if (corner) tapCorner(corner);
+    };
+    document.addEventListener('pointerdown', onPointerDown, { passive: true });
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [tapCorner]);
 
-  const corners: { key: Corner; cls: string }[] = [
-    { key: 'tl', cls: 'top-0 left-0' },
-    { key: 'tr', cls: 'top-0 right-0' },
-    { key: 'bl', cls: 'bottom-0 left-0' },
-    { key: 'br', cls: 'bottom-0 right-0' },
-  ];
-  return (
-    <>
-      {corners.map((c) => (
-        <button
-          key={c.key}
-          type="button"
-          aria-hidden
-          tabIndex={-1}
-          onClick={() => onCorner(c.key)}
-          className={`fixed ${c.cls} z-[45] h-11 w-11 opacity-0`}
-        />
-      ))}
-    </>
-  );
+  useEffect(() => {
+    if (!deckRequested) return;
+    clearDeckRequest();
+    navigate('/crew-deck');
+  }, [deckRequested, clearDeckRequest, navigate]);
+
+  return null;
+}
+
+function cornerAt(x: number, y: number): Corner | null {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const left = x <= CORNER_PX;
+  const right = x >= w - CORNER_PX;
+  const top = y <= CORNER_PX;
+  const bottom = y >= h - CORNER_PX;
+  if (top && left) return 'tl';
+  if (top && right) return 'tr';
+  if (bottom && left) return 'bl';
+  if (bottom && right) return 'br';
+  return null;
 }

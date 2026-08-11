@@ -96,6 +96,17 @@ describe('building the list', () => {
     expect(out.map((r) => r.id)).toEqual(['expiring', 'streak']);
   });
 
+  it('makes the streak card check in rather than navigate', () => {
+    // It lives on Today. Linking it to Today made "one tap" do nothing.
+    const streak = buildReminders({ ...opts, now: atHour(19) }).find((r) => r.id === 'streak');
+    expect(streak?.action).toEqual({ kind: 'check-in' });
+  });
+
+  it('sends the expiry card to Quest, where the claim button is', () => {
+    const expiring = buildReminders({ ...opts, now: atHour(19) }).find((r) => r.id === 'expiring');
+    expect(expiring?.action).toEqual({ kind: 'navigate', href: '/quest' });
+  });
+
   it('summarizes more than one expiry', () => {
     const out = buildReminders({ ...opts, now: atHour(19) });
     expect(out[0].title).toBe('2 challenges expire tonight');

@@ -65,6 +65,49 @@ export async function awardPoints(opts: {
 }
 
 /**
+ * Move one point from the giver to someone else, with a note.
+ *
+ * Two events, both authored by the giver's device: a debit against themselves
+ * and a credit to the recipient. Writing both is what makes this a transfer
+ * rather than a mint — the family's combined score doesn't move, and nobody
+ * can give away more than they hold.
+ *
+ * The caller is responsible for the balance and daily-cap checks
+ * (`canSendKudos`); this is the write.
+ */
+export async function giftPoint(opts: {
+  to: MemberId;
+  by: MemberId;
+  amount: number;
+  note: string;
+}): Promise<boolean> {
+  if (opts.to === opts.by || opts.amount <= 0) return false;
+
+  // Debit first. If the app dies between the two writes, the giver is briefly
+  // down a point they didn't give — which is recoverable and honest. The other
+  // order would mint a point out of nothing, which is the bug being fixed.
+  const debit = await awardPoints({
+    to: opts.by,
+    by: opts.by,
+    amount: -opts.amount,
+    reason: 'gift',
+    refId: opts.to,
+    note: opts.note,
+  });
+  if (!debit) return false;
+
+  const credit = await awardPoints({
+    to: opts.to,
+    by: opts.by,
+    amount: opts.amount,
+    reason: 'gift',
+    refId: debit.id,
+    note: opts.note,
+  });
+  return credit !== null;
+}
+
+/**
  * Record a completion whose challenge id is *derived*, not authored.
  *
  * Hunt-for rows already did this by hand; hunt stages, easter eggs, live

@@ -47,10 +47,25 @@ interface EggRuntime {
   pressAnchor: (anchor: string) => void;
   /** Register a corner tap for Konami-style codes. */
   tapCorner: (corner: Corner) => void;
+  /**
+   * Set once the built-in Crew Deck code has been entered. Watched by a
+   * component inside the router, which does the navigating and clears it.
+   */
+  deckRequested: boolean;
+  clearDeckRequest: () => void;
   /** Every authored egg, for the Crew Deck. */
   eggs: EggDef[];
   found: Set<string>;
 }
+
+/**
+ * The way into the Crew Deck.
+ *
+ * Lives here, above the router, rather than in the component that listens for
+ * taps: entering it means tapping controls that navigate, and a buffer held by
+ * a screen-level component would be wiped by the very first tap.
+ */
+const DECK_CODE: Corner[] = ['tl', 'tr', 'tl', 'tr'];
 
 const Ctx = createContext<EggRuntime | null>(null);
 
@@ -75,6 +90,7 @@ export function EggProvider({ children }: { children: React.ReactNode }) {
   const shabbatTimes = useShabbatTimes();
 
   const [active, setActive] = useState<EggDef | null>(null);
+  const [deckRequested, setDeckRequested] = useState(false);
   const taps = useRef(new Map<string, { count: number; at: number }>());
   const corners = useRef<{ seq: Corner[]; at: number }>({ seq: [], at: 0 });
 
@@ -162,6 +178,7 @@ export function EggProvider({ children }: { children: React.ReactNode }) {
       const stale = now - corners.current.at > CORNER_WINDOW_MS;
       const seq = [...(stale ? [] : corners.current.seq), corner].slice(-8);
       corners.current = { seq, at: now };
+
       for (const egg of cornerCodeEggs(eggs)) {
         if (found.has(egg.id)) continue;
         if (egg.trigger.kind !== 'corner-code') continue;
@@ -171,13 +188,28 @@ export function EggProvider({ children }: { children: React.ReactNode }) {
           return;
         }
       }
+
+      if (matchesCornerCode(seq, DECK_CODE)) {
+        corners.current = { seq: [], at: 0 };
+        setDeckRequested(true);
+      }
     },
     [eggs, found, fire],
   );
 
   const value = useMemo<EggRuntime>(
-    () => ({ active, dismiss: () => setActive(null), tapAnchor, pressAnchor, tapCorner, eggs, found }),
-    [active, tapAnchor, pressAnchor, tapCorner, eggs, found],
+    () => ({
+      active,
+      dismiss: () => setActive(null),
+      tapAnchor,
+      pressAnchor,
+      tapCorner,
+      deckRequested,
+      clearDeckRequest: () => setDeckRequested(false),
+      eggs,
+      found,
+    }),
+    [active, tapAnchor, pressAnchor, tapCorner, deckRequested, eggs, found],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -197,6 +229,8 @@ export function useEggs(): EggRuntime {
       tapAnchor: () => {},
       pressAnchor: () => {},
       tapCorner: () => {},
+      deckRequested: false,
+      clearDeckRequest: () => {},
       eggs: [],
       found: new Set<string>(),
     }

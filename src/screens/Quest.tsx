@@ -20,7 +20,7 @@ import {
 } from '../lib/points';
 import { todayYMD } from '../lib/time';
 import { enqueue } from '../lib/sync';
-import { awardPoints, EARN, CAPS } from '../lib/award';
+import { awardPoints, giftPoint, EARN, CAPS } from '../lib/award';
 import { uid } from '../lib/uuid';
 import { completionPath } from '../lib/paths';
 import { textToBase64 } from '../lib/github';
@@ -338,15 +338,14 @@ function KudosModal({
   const [busy, setBusy] = useState(false);
   const today = todayYMD();
   const left = kudosRemaining(events, myId, today);
+  const balance = totalPoints(events, myId);
   const check = canSendKudos({ events, giver: myId, to, note, date: today });
 
   async function send() {
     if (busy || !check.ok) return;
     setBusy(true);
     try {
-      await awardPoints({
-        to, by: myId, amount: KUDOS_POINTS, reason: 'gift', note: note.trim(),
-      });
+      await giftPoint({ to, by: myId, amount: KUDOS_POINTS, note: note.trim() });
       onClose();
     } finally {
       setBusy(false);
@@ -367,8 +366,11 @@ function KudosModal({
         <div className="flex items-start gap-3 mb-4">
           <div className="text-3xl">💝</div>
           <div className="flex-1">
-            <div className="font-display text-lg font-semibold">Send {name} a point</div>
-            <div className="text-sm text-ink-600">{left} left to give today</div>
+            <div className="font-display text-lg font-semibold">Give {name} a point</div>
+            {/* Say plainly that it costs — it comes out of your own score. */}
+            <div className="text-sm text-ink-600">
+              Comes out of your {balance} · {left} left to give today
+            </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="text-ink-400 p-1">
             <X size={18} />
@@ -381,7 +383,9 @@ function KudosModal({
           maxLength={MAX_NOTE_LENGTH}
           className="w-full rounded-2xl bg-white/70 ring-1 ring-white/80 px-4 py-3 text-[15px] outline-none focus:ring-sage-300"
         />
-        {!check.ok && note.length > 0 && (
+        {/* Balance and cap problems aren't the note's fault, so show those
+            straight away rather than waiting for someone to start typing. */}
+        {!check.ok && (note.length > 0 || balance < KUDOS_POINTS || left <= 0) && (
           <div className="text-coral text-xs mt-2">{check.reason}</div>
         )}
         <button
@@ -390,7 +394,7 @@ function KudosModal({
           onClick={() => void send()}
           className="mt-4 w-full rounded-full bg-ink-900 text-white font-medium py-3 disabled:opacity-40 active:scale-[0.98] transition"
         >
-          {busy ? 'Sending…' : `Send +${KUDOS_POINTS}`}
+          {busy ? 'Sending…' : `Give ${KUDOS_POINTS} of yours`}
         </button>
       </motion.div>
     </motion.div>

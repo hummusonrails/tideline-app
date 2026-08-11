@@ -25,6 +25,7 @@ import { DEFAULT_CONFIG, currentTier, leaderboard, totalPoints } from './points'
 import { effectiveReactions } from './reactions';
 import { parsePoll } from './poll';
 import { isReservedEmoji } from './predictions';
+import { isKudosCredit } from './kudos';
 import { huntFinaleId } from './hunts';
 
 export type RecapSlide =
@@ -331,7 +332,9 @@ function superlativeSlides(
     });
   }
 
-  const gifts = input.pointEvents.filter((e) => e.reason === 'gift');
+  // Only the credit half of each transfer — the matching debit shares the
+  // reason and the author, so counting both would double every gift.
+  const gifts = input.pointEvents.filter(isKudosCredit);
   if (gifts.length > 0) {
     const given = new Map<MemberId, number>();
     for (const g of gifts) given.set(g.by, (given.get(g.by) ?? 0) + 1);

@@ -174,6 +174,8 @@ export function Chat() {
 
   usePayouts(myId, messages, reactionEvents, profiles);
 
+  const anySheetOpen = composingPoll || composingPrediction || composingDuel;
+
   return (
     <Page eyebrow="Family" title="Chat" avatarSeed={myId} avatarDisplayName={myProfile?.displayName} avatarSrc={myAvatar}>
       {/* Bottom padding clears the fixed composer, which would otherwise sit
@@ -492,8 +494,12 @@ export function Chat() {
       )}
 
       {/* The tab bar would otherwise sit between the composer and the
-          keyboard, which reads as a stray strip of icons mid-screen. */}
-      {(composerFocused || keyboardInset > 0) && (
+          keyboard, which reads as a stray strip of icons mid-screen — and it
+          sat directly on top of every sheet's submit button, because a
+          bottom-anchored sheet ends exactly where the tab bar begins. Sheets
+          also render above it now; this hides it so there's nothing to layer
+          against in the first place. */}
+      {(composerFocused || keyboardInset > 0 || anySheetOpen) && (
         <style>{'nav[aria-label="Primary"]{display:none}'}</style>
       )}
     </Page>
@@ -806,9 +812,9 @@ function PollComposer({
   const canCreate = question.trim().length > 0 && filled.length >= MIN_OPTIONS;
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={onCancel}>
       <div
-        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3"
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-[max(2rem,env(safe-area-inset-bottom))] space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="font-medium">New poll</div>
@@ -887,9 +893,9 @@ function PredictionComposer({
   const canCreate = question.trim().length > 0 && filled.length >= MIN_OPTIONS;
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={onCancel}>
       <div
-        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-[max(2rem,env(safe-area-inset-bottom))] space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="font-medium">🎲 New prediction</div>
@@ -1001,9 +1007,9 @@ function DuelComposer({
   const canCreate = text.trim().length > 0 && !!target;
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/50 flex items-end justify-center" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={onCancel}>
       <div
-        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-8 space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
+        className="w-[min(100%,430px)] glass rounded-t-[28px] p-5 pb-[max(2rem,env(safe-area-inset-bottom))] space-y-3 max-h-[85dvh] overflow-y-auto scroll-clean"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="font-medium">⚔️ Challenge someone</div>

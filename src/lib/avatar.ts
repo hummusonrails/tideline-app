@@ -19,10 +19,21 @@ import { huntFinaleId } from './hunts';
 import { type UnlockState } from './avatarCatalog';
 import type { AvatarSpec, MemberId } from '../types';
 
-/** The composed spec for a member, or undefined if they haven't made one. */
-export function useAvatarSpec(memberId: string | null | undefined): AvatarSpec | undefined {
+/**
+ * The composed spec for a member.
+ *
+ * `undefined` means "still loading"; `null` means "loaded, and they haven't
+ * made one". Dexie's `.get()` resolves `undefined` for a row that isn't there,
+ * which is the exact value useLiveQuery reports while the query is still in
+ * flight — so without mapping the miss to `null` the two states are
+ * indistinguishable, and anything waiting for the load waits forever.
+ * (`PlaceDetail` hit this first; same trap.)
+ */
+export function useAvatarSpec(
+  memberId: string | null | undefined,
+): AvatarSpec | null | undefined {
   return useLiveQuery(
-    () => (memberId ? db.avatarSpecs.get(memberId) : undefined),
+    async () => (memberId ? ((await db.avatarSpecs.get(memberId)) ?? null) : null),
     [memberId],
   );
 }

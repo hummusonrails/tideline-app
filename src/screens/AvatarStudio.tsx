@@ -37,8 +37,10 @@ export function AvatarStudio() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Seed the draft once the stored spec resolves (undefined means "still
-  // loading", so waiting avoids clobbering a synced look with a fresh default).
+  // Seed the draft once the stored spec resolves. `undefined` is still
+  // loading, `null` is loaded-and-absent — waiting on the former avoids
+  // clobbering a synced look with a fresh default, and acting on the latter is
+  // what lets a first-time member get past the loading state at all.
   useEffect(() => {
     if (draft !== null || stored === undefined) return;
     setDraft(
