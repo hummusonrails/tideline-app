@@ -27,6 +27,7 @@ import { parsePoll } from './poll';
 import { isReservedEmoji } from './predictions';
 import { isKudosCredit } from './kudos';
 import { huntFinaleId } from './hunts';
+import { parseRaceId, racesOnDay } from './race/score';
 
 export type RecapSlide =
   // `authorId` rides alongside the name so the player can draw their crew
@@ -105,14 +106,32 @@ export function buildRecap(input: RecapInput): RecapSlide[] {
     });
   }
 
+  // Kart-duel records ride the completions collection too, but they're a
+  // different kind of brag — split them out so a rematch evening doesn't
+  // read as "14 challenges completed".
   const completedToday = input.completions.filter(
-    (c) => localDay(c.completedAt) === input.date,
+    (c) => localDay(c.completedAt) === input.date && parseRaceId(c.challengeId) === null,
   ).length;
   if (completedToday > 0) {
     slides.push({
       kind: 'stat',
       headline: `${completedToday} challenge${completedToday === 1 ? '' : 's'} completed`,
       detail: 'Nicely done.',
+    });
+  }
+
+  const races = racesOnDay(input.completions, input.date);
+  if (races.length > 0) {
+    const winCounts = new Map<MemberId, number>();
+    for (const r of races) {
+      if (r.winner) winCounts.set(r.winner, (winCounts.get(r.winner) ?? 0) + 1);
+    }
+    // Sort by wins then member id so every phone crowns the same champion.
+    const top = [...winCounts.entries()].sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))[0];
+    slides.push({
+      kind: 'stat',
+      headline: `${races.length} kart duel${races.length === 1 ? '' : 's'} raced`,
+      detail: top ? `${nameOf(top[0])} took the flag ${top[1] === 1 ? 'once' : `${top[1]} times`}` : '',
     });
   }
 

@@ -31,8 +31,9 @@ import { blobToBytes } from '../lib/blobBytes';
 import type { Collection } from '../lib/p2p/protocol';
 import {
   Smartphone, Trash2, X, ScanLine, QrCode, Wifi, Share2, FolderInput,
-  ChevronDown, Users, AlertTriangle,
+  ChevronDown, Users, AlertTriangle, Flag,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 /** How far back each "days" option reaches for QR / file transfer. */
 const DAY_OPTIONS = [1, 3, 7, 0] as const; // 0 = everything
@@ -271,6 +272,8 @@ export function Devices() {
               </PillButton>
             </div>
           </GlassCard>
+
+          <KartDuelCard summaries={summaries} />
 
           <ShipPlaybook />
 
@@ -774,6 +777,43 @@ function DayPicker({ days, onChange }: { days: number; onChange: (d: number) => 
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The duel's front door. Lives here because racing has the same prerequisite
+ * as syncing: a live, trusted, same-room connection — and this is the screen
+ * where people make one. The button lights up the moment a peer is
+ * connected, and explains itself the rest of the time.
+ */
+function KartDuelCard({ summaries }: { summaries: PeerSummary[] }) {
+  const navigate = useNavigate();
+  const live = summaries.some((s) => s.state === 'syncing' || s.state === 'idle');
+  return (
+    <GlassCard className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Flag size={16} />
+        <div className="font-medium">Kart Duel</div>
+        {live && (
+          <span className="text-[10px] uppercase tracking-wider bg-sage-200 text-ink-700 rounded-full px-2 py-0.5">
+            opponent online
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-ink-600">
+        Race another family member head-to-head — your crew avatars at the
+        wheel, three laps, items and all. You need to be paired and next to
+        each other; the phones talk directly, no internet.
+      </div>
+      <PillButton
+        onClick={() => navigate('/race')}
+        disabled={!live}
+        icon={<Flag size={14} />}
+        className="w-full justify-center"
+      >
+        {live ? 'Start a duel' : 'Connect a phone above to race'}
+      </PillButton>
+    </GlassCard>
   );
 }
 

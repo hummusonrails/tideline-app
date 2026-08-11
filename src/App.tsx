@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { HashRouter, Route, Routes, Navigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { HashRouter, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Onboarding } from './screens/Onboarding';
 import { Today } from './screens/Today';
 import { Itinerary } from './screens/Itinerary';
@@ -15,6 +15,9 @@ import { CrewDeck } from './screens/CrewDeck';
 import { About } from './screens/About';
 import { Devices } from './screens/Devices';
 import { Recap } from './screens/Recap';
+import { RaceDuel } from './screens/RaceDuel';
+import { encodeRaceMsg, parseRaceMsg } from './lib/race/net';
+import { setPendingInvite, clearPendingInvite } from './lib/race/inviteBus';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
 import { TabBar } from './ui/TabBar';
 import { EggProvider } from './lib/eggRuntime';
@@ -79,6 +82,8 @@ export function App() {
       <EggProvider>
       {updateReady && <UpdateBanner onApply={() => triggerUpdate()} />}
       {showFirstRun && <FirstRun onDone={() => setFirstRunDone(true)} />}
+      {/* A race challenge can arrive while you're on any screen. */}
+      {!needsOnboarding && <RaceInviteWatcher />}
       {/* Renders whatever the egg runtime has raised, from any screen. */}
       <EggOverlay />
       <Routes>
@@ -103,6 +108,9 @@ export function App() {
             <Route path="/devices" element={<WithTabs><Devices /></WithTabs>} />
             {/* Full-screen by design — no tab bar over the slideshow. */}
             <Route path="/recap" element={<Recap />} />
+            {/* Full-screen too: a tab bar under the race canvas would eat
+                the touch controls. */}
+            <Route path="/race" element={<RaceDuel />} />
             <Route path="/about" element={<WithTabs><About /></WithTabs>} />
             <Route path="*" element={<Navigate to="/today" replace />} />
           </>
@@ -123,6 +131,68 @@ function WithTabs({ children }: { children: React.ReactNode }) {
       {/* Above the tab bar in z-order but invisible; see CornerTaps. */}
       <CornerTaps />
     </>
+  );
+}
+
+/**
+ * Listens for kart-duel invites app-wide and raises a banner. Game frames
+ * are transient — if the invite only lived inside the race screen, a
+ * challenge sent while you're browsing photos would evaporate unseen. The
+ * invite itself is stashed in the invite bus so the race screen can pick it
+ * up after navigation.
+ */
+function RaceInviteWatcher() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [banner, setBanner] = useState<{ name: string; fingerprint: string } | null>(null);
+  const onRaceScreen = location.pathname === '/race';
+
+  useEffect(() => {
+    if (onRaceScreen) {
+      // The race screen handles its own invites; drop any stale banner.
+      setBanner(null);
+      return;
+    }
+    return getPeerManager().onGame((fingerprint, gmsg) => {
+      const parsed = parseRaceMsg(gmsg);
+      if (!parsed || !parsed.ok || parsed.msg.kind !== 'invite') return;
+      setPendingInvite({ fromFingerprint: fingerprint, intro: parsed.msg.intro, at: Date.now() });
+      setBanner({ name: parsed.msg.intro.name, fingerprint });
+    });
+  }, [onRaceScreen]);
+
+  const dismiss = useCallback(() => {
+    // Tell the challenger no — otherwise they sit on "waiting…" until they
+    // give up on their own.
+    if (banner) {
+      getPeerManager().sendGame(banner.fingerprint, encodeRaceMsg({ kind: 'decline' }));
+    }
+    clearPendingInvite();
+    setBanner(null);
+  }, [banner]);
+
+  if (!banner || onRaceScreen) return null;
+  return (
+    <div className="fixed top-3 inset-x-3 z-50 glass rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
+      <span className="text-sm min-w-0 truncate">🏁 {banner.name} challenges you to a kart duel!</span>
+      <div className="flex gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => { setBanner(null); navigate('/race'); }}
+          className="text-sm font-semibold text-white bg-ink-900 px-3 py-1 rounded-full"
+        >
+          Race
+        </button>
+        <button
+          type="button"
+          onClick={dismiss}
+          aria-label="Dismiss challenge"
+          className="text-sm font-semibold text-ink-700 px-2 py-1 rounded-full bg-white/70"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
   );
 }
 
