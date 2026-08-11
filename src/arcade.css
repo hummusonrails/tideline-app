@@ -1,0 +1,245 @@
+/**
+ * The arcade skin.
+ *
+ * Everything here is scoped under `.arcade` so a neon CRT can live inside an
+ * app whose whole design language is pale sage glass without leaking a single
+ * declaration into it. The rest of the app never opts in; the arcade never
+ * opts out.
+ *
+ * No webfont, no images, no shaders. A 1980s cabinet is mostly three things —
+ * a monospace face in all caps, colours that glow, and a scanline — and all
+ * three are reachable with text-shadow and a repeating gradient. That matters
+ * more than authenticity here: this has to boot on a plane.
+ */
+
+.arcade {
+  --neon-pink: #ff2fd0;
+  --neon-cyan: #21e6ff;
+  --neon-lime: #7cff4d;
+  --neon-gold: #ffd21e;
+  --neon-violet: #a86bff;
+  --neon-red: #ff4a5e;
+  --cab-bg: #07020f;
+  --cab-panel: #150a26;
+  --cab-line: rgba(122, 231, 255, 0.28);
+  --cab-text: #dff3ff;
+  --cab-dim: #8a7fb5;
+
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+  color: var(--cab-text);
+  letter-spacing: 0.06em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The cabinet backdrop: a dark room with a purple glow behind the screen. */
+.arcade-bg {
+  background-color: var(--cab-bg);
+  background-image:
+    radial-gradient(120% 70% at 50% 0%, rgba(168, 107, 255, 0.28) 0%, transparent 60%),
+    radial-gradient(90% 60% at 50% 100%, rgba(33, 230, 255, 0.16) 0%, transparent 65%),
+    linear-gradient(180deg, #0a0318 0%, #06010f 100%);
+}
+
+/* Faint perspective floor grid — the single most 1980s thing available. */
+.arcade-grid::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(255, 47, 208, 0.16) 0 1px,
+      transparent 1px 40px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 47, 208, 0.16) 0 1px,
+      transparent 1px 28px
+    );
+  mask-image: linear-gradient(to bottom, transparent, black 85%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 85%);
+  opacity: 0.55;
+}
+
+/*
+ * Scanlines + vignette, painted over the content rather than under it.
+ * `pointer-events: none` is load-bearing — this sits above the play field,
+ * and without it the overlay would eat every tap in the game.
+ */
+.crt {
+  position: relative;
+  isolation: isolate;
+}
+.crt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.22) 0 1px,
+    transparent 1px 3px
+  );
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.75);
+  border-radius: inherit;
+  mix-blend-mode: multiply;
+}
+
+/* Text that glows in its own colour. Set `color` and this follows. */
+.neon {
+  text-shadow:
+    0 0 4px currentColor,
+    0 0 14px currentColor,
+    0 0 30px color-mix(in srgb, currentColor 55%, transparent);
+}
+.neon-soft {
+  text-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
+}
+
+/* Panel: the inset plastic bezel every cabinet control sits on. */
+.cab-panel {
+  background: linear-gradient(180deg, rgba(21, 10, 38, 0.92), rgba(9, 3, 20, 0.92));
+  border: 1px solid var(--cab-line);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 22px rgba(33, 230, 255, 0.1);
+}
+
+/* A cabinet tile in the lobby. The hue is set per-game as --cab-hue. */
+.cab-tile {
+  background:
+    linear-gradient(180deg,
+      hsl(var(--cab-hue, 300) 90% 62% / 0.16) 0%,
+      rgba(9, 3, 20, 0.9) 55%);
+  border: 1px solid hsl(var(--cab-hue, 300) 90% 65% / 0.5);
+  box-shadow:
+    0 0 18px hsl(var(--cab-hue, 300) 90% 60% / 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 120ms ease, box-shadow 160ms ease;
+}
+.cab-tile:active {
+  transform: translateY(1px) scale(0.985);
+  box-shadow: 0 0 26px hsl(var(--cab-hue, 300) 90% 60% / 0.45);
+}
+
+/* Chunky arcade button. */
+.arcade-btn {
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  padding: 0.6rem 1.1rem;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow:
+    0 0 12px color-mix(in srgb, currentColor 45%, transparent),
+    inset 0 0 12px color-mix(in srgb, currentColor 18%, transparent);
+  transition: transform 90ms ease, background-color 120ms ease;
+}
+.arcade-btn:active {
+  transform: translateY(1px);
+  background: color-mix(in srgb, currentColor 26%, transparent);
+}
+.arcade-btn:disabled {
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+/* Low-res canvases stay chunky instead of being smoothed into mush. */
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+/* Marquee flicker — a tube warming up. Deliberately slow and rare. */
+@keyframes arcade-flicker {
+  0%, 96%, 100% { opacity: 1; }
+  97% { opacity: 0.62; }
+  98% { opacity: 1; }
+  99% { opacity: 0.75; }
+}
+.flicker {
+  animation: arcade-flicker 7s linear infinite;
+}
+
+@keyframes arcade-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
+}
+.blink {
+  animation: arcade-blink 1s steps(1, end) infinite;
+}
+
+@keyframes arcade-scroll {
+  from { transform: translateX(100%); }
+  to { transform: translateX(-100%); }
+}
+.attract-scroll {
+  animation: arcade-scroll 18s linear infinite;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+@keyframes arcade-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pop-in {
+  animation: arcade-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+}
+
+@keyframes arcade-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+.shake {
+  animation: arcade-shake 260ms ease-in-out;
+}
+
+/*
+ * The reduced-motion block in index.css already flattens every animation
+ * globally, which covers the flicker, the blink and the attract scroll. What
+ * it can't do is stop a *static* scanline pattern from shimmering on a
+ * high-density screen, so drop that too for anyone who asked for calm.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .crt::after {
+    background-image: none;
+  }
+  .arcade-grid::before {
+    opacity: 0.3;
+  }
+}
+
+/*
+ * The room itself.
+ *
+ * Applied to <html> while an arcade or party screen is mounted, because the
+ * app paints its pale background on html/body/#root and a child element
+ * cannot get behind that. See lib/arcade/room.ts.
+ */
+html.arcade-room,
+html.arcade-room body,
+html.arcade-room #root {
+  background-color: #06010f;
+  background-image:
+    radial-gradient(120% 60% at 50% 0%, rgba(168, 107, 255, 0.22) 0%, transparent 60%),
+    radial-gradient(90% 50% at 50% 100%, rgba(33, 230, 255, 0.12) 0%, transparent 65%);
+  color: #dff3ff;
+}
+
+/* The tab bar is a glass pill designed for daylight; give it a dark twin so
+   it doesn't glow white against the cabinet. */
+html.arcade-room .glass {
+  background-color: rgb(12 4 24 / 0.72);
+  border-color: rgb(122 231 255 / 0.22);
+  color: #dff3ff;
+}

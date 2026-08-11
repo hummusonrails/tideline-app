@@ -16,6 +16,9 @@ import { About } from './screens/About';
 import { Devices } from './screens/Devices';
 import { Recap } from './screens/Recap';
 import { RaceDuel } from './screens/RaceDuel';
+import { Arcade } from './screens/Arcade';
+import { ArcadeGame } from './screens/ArcadeGame';
+import { ArcadeLeaderboard } from './screens/ArcadeLeaderboard';
 import { encodeRaceMsg, parseRaceMsg } from './lib/race/net';
 import { setPendingInvite, clearPendingInvite } from './lib/race/inviteBus';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
@@ -99,6 +102,10 @@ export function App() {
             <Route path="/photos" element={<WithTabs><Photos /></WithTabs>} />
             <Route path="/chat" element={<WithTabs><Chat /></WithTabs>} />
             <Route path="/quest" element={<WithTabs><Quest /></WithTabs>} />
+            <Route path="/arcade" element={<WithTabs><Arcade /></WithTabs>} />
+            <Route path="/arcade/leaderboard" element={<WithTabs><ArcadeLeaderboard /></WithTabs>} />
+            {/* Full-screen: a tab bar under a cabinet eats the controls. */}
+            <Route path="/arcade/:gameId" element={<ArcadeGame />} />
             <Route path="/profile" element={<WithTabs><Profile /></WithTabs>} />
             <Route path="/place/:slug" element={<WithTabs><PlaceDetail /></WithTabs>} />
             <Route path="/hunt/:id" element={<WithTabs><HuntDetail /></WithTabs>} />

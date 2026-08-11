@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The arcade's neon skin. Entirely scoped under `.arcade` — see the file. */
+@import "./arcade.css";
 
 /* Inter (variable) is preloaded in index.html. Fallback chain handles the
    brief period before the variable font lands, and offline edge cases. */

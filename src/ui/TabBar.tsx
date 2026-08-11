@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Calendar, Camera, MessageCircle, Trophy } from 'lucide-react';
+import { Home, Calendar, Camera, MessageCircle, Trophy, Gamepad2 } from 'lucide-react';
 
 const tabs = [
   { to: '/today', icon: Home,           label: 'Today' },
@@ -7,6 +7,7 @@ const tabs = [
   { to: '/photos', icon: Camera,        label: 'Photos' },
   { to: '/chat', icon: MessageCircle,   label: 'Chat' },
   { to: '/quest', icon: Trophy,         label: 'Quest' },
+  { to: '/arcade', icon: Gamepad2,      label: 'Games' },
 ];
 
 export function TabBar() {
@@ -26,7 +27,7 @@ export function TabBar() {
               className={({ isActive }) =>
                 // Labels, not icons alone: five glyphs with no words makes
                 // people guess, and the guess costs a wrong screen every time.
-                `flex flex-col items-center justify-center gap-0.5 h-14 w-14 rounded-2xl transition ${
+                `flex flex-col items-center justify-center gap-0.5 h-14 w-[3.1rem] rounded-2xl transition ${
                   isActive
                     ? 'bg-white shadow-[var(--shadow-pill)] text-ink-900'
                     : 'text-ink-600 hover:text-ink-900'

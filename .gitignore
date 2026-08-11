@@ -7,3 +7,6 @@ dist
 .vite
 coverage
 .claude
+
+# tsc incremental caches — build artifacts, not source
+*.tsbuildinfo
