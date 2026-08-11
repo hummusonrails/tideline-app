@@ -19,6 +19,8 @@ import { RaceDuel } from './screens/RaceDuel';
 import { Arcade } from './screens/Arcade';
 import { ArcadeGame } from './screens/ArcadeGame';
 import { ArcadeLeaderboard } from './screens/ArcadeLeaderboard';
+import { PartyGames } from './screens/PartyGames';
+import { PartyGame } from './screens/PartyGame';
 import { encodeRaceMsg, parseRaceMsg } from './lib/race/net';
 import { setPendingInvite, clearPendingInvite } from './lib/race/inviteBus';
 import { FirstRun, needsFirstRun } from './screens/FirstRun';
@@ -104,6 +106,10 @@ export function App() {
             <Route path="/quest" element={<WithTabs><Quest /></WithTabs>} />
             <Route path="/arcade" element={<WithTabs><Arcade /></WithTabs>} />
             <Route path="/arcade/leaderboard" element={<WithTabs><ArcadeLeaderboard /></WithTabs>} />
+            {/* Party games run on one phone passed around a table, so the
+                lobby keeps the tab bar and a live game takes the screen. */}
+            <Route path="/party" element={<WithTabs><PartyGames /></WithTabs>} />
+            <Route path="/party/:gameId" element={<PartyGame />} />
             {/* Full-screen: a tab bar under a cabinet eats the controls. */}
             <Route path="/arcade/:gameId" element={<ArcadeGame />} />
             <Route path="/profile" element={<WithTabs><Profile /></WithTabs>} />

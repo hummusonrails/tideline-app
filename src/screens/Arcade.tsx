@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Trophy, Volume2, VolumeX } from 'lucide-react';
+import { Trophy, Users, Volume2, VolumeX } from 'lucide-react';
 import { db } from '../lib/db';
 import { useSession } from '../state/session';
 import { GAMES, CATEGORY_LABEL, type ArcadeCategory } from '../lib/arcade/catalog';
@@ -193,6 +193,30 @@ export function Arcade() {
             </div>
           </div>
         )}
+
+        {/* ---- the other room ---- */}
+        <Link
+          to="/party"
+          onClick={() => sfx.coin()}
+          className="cab-tile mt-4 flex items-center gap-3 rounded-xl p-3"
+          style={{ ['--cab-hue' as string]: '272' }}
+        >
+          <span className="text-2xl" aria-hidden>
+            🎴
+          </span>
+          <span className="min-w-0 flex-1">
+            <span
+              className="neon-soft block text-[11px] font-bold uppercase tracking-[0.14em]"
+              style={{ color: 'var(--neon-violet)' }}
+            >
+              Family card games
+            </span>
+            <span className="block text-[10px] leading-snug" style={{ color: 'var(--cab-dim)' }}>
+              Ten games for one phone and a table. For the car, or the long bit.
+            </span>
+          </span>
+          <Users size={14} style={{ color: 'var(--neon-violet)' }} />
+        </Link>
 
         {/* ---- filters ---- */}
         <div className="scroll-clean mt-4 flex gap-2 overflow-x-auto pb-1">

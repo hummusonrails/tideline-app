@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import type { Vip } from './party/vips';
 import type {
   Message,
   Photo,
@@ -79,6 +80,22 @@ interface DeliveryRow {
   at: string;
 }
 
+/**
+ * A finished party game, as seen by the phone it was played on.
+ *
+ * Names are captured alongside the member ids because a session is a
+ * snapshot of an evening: it should still read correctly later even if a
+ * profile is renamed, and it has to render for a player who has no profile
+ * synced on this device at all.
+ */
+export interface PartySessionRow {
+  id: string;
+  gameId: string;
+  playedAt: string;          // ISO
+  hostId: string;
+  players: { memberId: string; name: string; score: number }[];
+}
+
 class TidelineDB extends Dexie {
   meta!: Table<MetaRow, string>;
   treeEtags!: Table<TreeEtagRow, string>;
@@ -105,6 +122,8 @@ class TidelineDB extends Dexie {
 
   hunts!: Table<Hunt, string>;
   avatarSpecs!: Table<AvatarSpec, string>;
+  partySessions!: Table<PartySessionRow, string>;
+  vips!: Table<Vip, string>;
 
   constructor() {
     super('tideline');
@@ -177,6 +196,24 @@ class TidelineDB extends Dexie {
     this.version(7).stores({
       hunts: '&id, activeFrom, activeUntil',
       avatarSpecs: '&memberId',
+    });
+    // v8 — party-game sessions, local to the device that hosted them.
+    //
+    // Deliberately local-only, the same class as `deliveries`: a party game
+    // runs on one phone with everybody sitting around it, so the host's
+    // device is the only one that ever observes the result. `routeFor` has no
+    // route for it, so nothing here reaches the backend. The family-wide
+    // record of a session is the results card the host posts into the chat —
+    // an ordinary message, which already syncs and gossips.
+    this.version(8).stores({
+      partySessions: '&id, gameId, playedAt',
+    });
+    // v9 — VIP guests: people who play party games on this phone without
+    // having an account. Local-only for the same reason as the sessions
+    // above, and deliberately so: a guest has no member id to sync under and
+    // no device to self-mint points from. See lib/party/vips.ts.
+    this.version(9).stores({
+      vips: '&id, addedAt',
     });
   }
 }
